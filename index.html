@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SlideWala helps students and professionals create better presentations.">
+  <title>SlideWala — Present your ideas beautifully</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#"><span class="brand-mark">S</span> SlideWala</a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="#features">Features</a><a href="#how">How it works</a>
+    </nav>
+    <a class="nav-cta" href="#create">Create a presentation <span>↗</span></a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="spark">✦</span> YOUR IDEAS, BEAUTIFULLY PRESENTED</div>
+        <h1>Make your next<br><span>presentation</span> stand out.</h1>
+        <p class="hero-text">Create polished presentations for college, classrooms, meetings and big ideas — all in one simple workspace.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#create">Start creating <span>→</span></a>
+          <a class="button secondary" href="#how">See how it works</a>
+        </div>
+        <div class="trust-line"><span class="avatars">S&nbsp; P</span> Made for students and professionals</div>
+      </div>
+      <div class="preview-wrap" aria-label="Presentation preview">
+        <div class="preview-glow"></div>
+        <div class="slide-card">
+          <div class="slide-top"><span class="mini-brand">SW / PRESENTATION</span><span>01 — 08</span></div>
+          <div class="slide-content">
+            <div class="slide-kicker">THE BIG IDEA</div>
+            <div class="slide-title">Ideas that<br>move us <i>forward.</i></div>
+            <div class="slide-rule"></div>
+            <div class="slide-bottom"><span>DESIGN • THINK • PRESENT</span><span class="slide-orb"></span></div>
+          </div>
+        </div>
+        <div class="float-tag tag-one">✦ Clean layouts</div>
+        <div class="float-tag tag-two"><span class="green-dot"></span> Your next great deck</div>
+      </div>
+    </section>
+
+    <section class="create-section" id="create">
+      <div class="section-heading">
+        <div><div class="eyebrow">LET'S GET STARTED</div><h2>What are you creating today?</h2></div>
+        <p>Choose your purpose. We'll help you shape the story.</p>
+      </div>
+      <div class="choice-grid">
+        <button class="choice-card selected" data-audience="student" type="button">
+          <span class="choice-icon student-icon">▤</span><span class="choice-title">For students</span>
+          <span class="choice-desc">Assignments, seminars, projects, research and class presentations.</span>
+          <span class="choice-foot">Explore student presentations <b>↗</b></span>
+        </button>
+        <button class="choice-card" data-audience="professional" type="button">
+          <span class="choice-icon pro-icon">▥</span><span class="choice-title">For professionals</span>
+          <span class="choice-desc">Business proposals, pitches, reports, training and team meetings.</span>
+          <span class="choice-foot">Explore professional decks <b>↗</b></span>
+        </button>
+      </div>
+      <div class="topic-panel">
+        <div class="topic-label">YOUR PRESENTATION WORKSPACE <span class="status-pill">PHASE 1 PREVIEW</span></div>
+        <label for="topic">What is your presentation about?</label>
+        <div class="topic-input-row">
+          <input id="topic" type="text" placeholder="e.g. The future of artificial intelligence" maxlength="160">
+          <button id="createBtn" class="button primary" type="button">Continue <span>→</span></button>
+        </div>
+        <div class="topic-meta"><span>✦ AI-assisted creation is coming in Phase 2</span><span id="audienceLabel">Selected: Student</span></div>
+        <p id="notice" class="notice" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="features-section" id="features">
+      <div class="eyebrow">BUILT FOR BETTER PRESENTATIONS</div>
+      <h2>Everything starts with a good idea.</h2>
+      <div class="feature-grid">
+        <article class="feature"><span>✦</span><h3>AI presentation maker</h3><p>Turn a topic or prompt into a clear slide-by-slide story. (Coming in Phase 2)</p></article>
+        <article class="feature"><span>▧</span><h3>Beautiful templates</h3><p>Choose clean, modern styles for academic and professional work.</p></article>
+        <article class="feature"><span>↗</span><h3>Export and present</h3><p>Download editable PowerPoint files and share your work.</p></article>
+      </div>
+    </section>
+
+    <section class="how-section" id="how">
+      <div><div class="eyebrow">SIMPLE BY DESIGN</div><h2>From blank page<br>to presentation.</h2></div>
+      <div class="steps">
+        <div><b>01</b><span><strong>Choose your purpose</strong><small>Student or professional.</small></span></div>
+        <div><b>02</b><span><strong>Describe your topic</strong><small>Tell SlideWala what you want to present.</small></span></div>
+        <div><b>03</b><span><strong>Build and export</strong><small>Create, edit and download your deck.</small></span></div>
+      </div>
+    </section>
+  </main>
+  <footer><a class="brand" href="#"><span class="brand-mark">S</span> SlideWala</a><span>Make every slide count.</span><span>© 2026 SlideWala</span></footer>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
