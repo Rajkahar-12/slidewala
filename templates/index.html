@@ -62,24 +62,48 @@
         </button>
       </div>
       <div class="topic-panel">
-        <div class="topic-label">YOUR PRESENTATION WORKSPACE <span class="status-pill">PHASE 1 PREVIEW</span></div>
+        <div class="topic-label">YOUR PRESENTATION WORKSPACE <span class="status-pill">PHASE 2 · AI READY</span></div>
         <label for="topic">What is your presentation about?</label>
         <div class="topic-input-row">
           <input id="topic" type="text" placeholder="e.g. The future of artificial intelligence" maxlength="160">
           <button id="createBtn" class="button primary" type="button">Continue <span>→</span></button>
         </div>
-        <div class="topic-meta"><span>✦ AI-assisted creation is coming in Phase 2</span><span id="audienceLabel">Selected: Student</span></div>
+        <div class="slide-count-row">
+          <span class="slide-count-label">How many slides?</span>
+          <div class="slide-count-options" role="radiogroup" aria-label="Slide count">
+            <button type="button" class="count-btn" data-count="5">5</button>
+            <button type="button" class="count-btn" data-count="8">8</button>
+            <button type="button" class="count-btn selected" data-count="10">10</button>
+            <button type="button" class="count-btn" data-count="12">12</button>
+          </div>
+        </div>
+        <div class="topic-meta"><span>✦ Powered by your own AI API key (kept server-side)</span><span id="audienceLabel">Selected: Student</span></div>
         <p id="notice" class="notice" role="status" aria-live="polite"></p>
       </div>
+    </section>
+
+    <section class="results-section" id="results" hidden>
+      <div class="results-head">
+        <div>
+          <div class="eyebrow">YOUR PRESENTATION</div>
+          <h2 id="resultTitle"></h2>
+          <p id="resultSubtitle" class="result-subtitle"></p>
+        </div>
+        <div class="results-actions">
+          <button id="copyBtn" class="button secondary" type="button">Copy outline</button>
+          <button id="resetBtn" class="button primary" type="button">Generate another <span>↻</span></button>
+        </div>
+      </div>
+      <div id="slidesList" class="slides-list"></div>
     </section>
 
     <section class="features-section" id="features">
       <div class="eyebrow">BUILT FOR BETTER PRESENTATIONS</div>
       <h2>Everything starts with a good idea.</h2>
       <div class="feature-grid">
-        <article class="feature"><span>✦</span><h3>AI presentation maker</h3><p>Turn a topic or prompt into a clear slide-by-slide story. (Coming in Phase 2)</p></article>
+        <article class="feature"><span>✦</span><h3>AI presentation maker</h3><p>Turn a topic or prompt into a clear slide-by-slide story, with speaker notes.</p></article>
         <article class="feature"><span>▧</span><h3>Beautiful templates</h3><p>Choose clean, modern styles for academic and professional work.</p></article>
-        <article class="feature"><span>↗</span><h3>Export and present</h3><p>Download editable PowerPoint files and share your work.</p></article>
+        <article class="feature"><span>↗</span><h3>Export and present</h3><p>Copy the full outline today — PowerPoint export arrives in Phase 3.</p></article>
       </div>
     </section>
 
@@ -88,7 +112,7 @@
       <div class="steps">
         <div><b>01</b><span><strong>Choose your purpose</strong><small>Student or professional.</small></span></div>
         <div><b>02</b><span><strong>Describe your topic</strong><small>Tell SlideWala what you want to present.</small></span></div>
-        <div><b>03</b><span><strong>Build and export</strong><small>Create, edit and download your deck.</small></span></div>
+        <div><b>03</b><span><strong>Preview and copy</strong><small>Review slides and copy the full outline.</small></span></div>
       </div>
     </section>
   </main>
