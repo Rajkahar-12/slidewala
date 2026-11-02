@@ -1,5 +1,5 @@
 
-"""SlideWala AI service using one OpenRouter API key."""
+"""SlideWala AI service with automatic GPT/Claude routing through OpenRouter."""
 
 import json
 import os
@@ -19,21 +19,10 @@ ALLOWED_TONES = {
     "educational", "formal", "persuasive", "casual", "inspiring"
 }
 
-# Keep these theme names synchronized with the frontend
-# and PowerPoint/PDF export services.
 ALLOWED_THEMES = {
-    "aurora",
-    "midnight",
-    "minimal",
-    "corporate",
-    "ocean",
-    "sunset",
-    "forest",
-    "rose",
-    "lavender",
-    "graphite",
-    "sand",
-    "cyberpunk",
+    "aurora", "midnight", "minimal", "corporate",
+    "ocean", "sunset", "forest", "rose",
+    "lavender", "graphite", "sand", "cyberpunk",
 }
 
 THEME_DESCRIPTIONS = {
@@ -52,22 +41,14 @@ THEME_DESCRIPTIONS = {
 }
 
 ALLOWED_LAYOUTS = {
-    "title",
-    "intro",
-    "content",
-    "image-left",
-    "image-right",
-    "full-image",
-    "comparison",
-    "conclusion",
-    "references",
+    "title", "intro", "content", "image-left",
+    "image-right", "full-image", "comparison",
+    "conclusion", "references",
 }
 
 DEFAULT_MODELS = {
     "chatgpt": "openai/gpt-4o-mini",
-    "openai": "openai/gpt-4o-mini",
     "claude": "anthropic/claude-sonnet-4.6",
-    "anthropic": "anthropic/claude-sonnet-4.6",
 }
 
 
@@ -79,8 +60,8 @@ class AIResponseError(Exception):
     """Raised when the AI returns invalid content."""
 
 
-def _get_config(provider="chatgpt"):
-    """Get OpenRouter configuration and selected model."""
+def _get_config(provider):
+    """Get OpenRouter configuration for the selected model."""
 
     api_key = (
         os.getenv("OPENROUTER_API_KEY")
@@ -91,7 +72,7 @@ def _get_config(provider="chatgpt"):
     if not api_key:
         raise AIConfigError(
             "OpenRouter API key is missing. Add OPENROUTER_API_KEY "
-            "to your .env file or Render environment variables."
+            "to your Render environment variables."
         )
 
     base_url = (
@@ -99,22 +80,17 @@ def _get_config(provider="chatgpt"):
         or "https://openrouter.ai/api/v1"
     ).rstrip("/")
 
-    provider = str(provider or "chatgpt").strip().lower()
-
-    if provider not in DEFAULT_MODELS:
-        raise ValueError("Please select ChatGPT or Claude.")
-
-    if provider in ("chatgpt", "openai"):
+    if provider == "chatgpt":
         model = (
             os.getenv("OPENAI_MODEL")
             or os.getenv("AI_MODEL")
-            or DEFAULT_MODELS[provider]
+            or DEFAULT_MODELS["chatgpt"]
         )
     else:
         model = (
             os.getenv("CLAUDE_MODEL")
             or os.getenv("AI_CLAUDE_MODEL")
-            or DEFAULT_MODELS[provider]
+            or DEFAULT_MODELS["claude"]
         )
 
     try:
@@ -125,8 +101,60 @@ def _get_config(provider="chatgpt"):
     return api_key, base_url, model, timeout
 
 
+def _choose_provider(topic, theme):
+    """
+    Select an AI internally using topic and visual theme.
+
+    This selection is never shown to the user.
+    """
+
+    text = f"{topic} {theme}".lower()
+
+    claude_keywords = {
+        "business", "finance", "marketing", "management",
+        "leadership", "strategy", "branding", "storytelling",
+        "creative writing", "literature", "history",
+        "philosophy", "culture", "design thinking",
+        "communication", "advertising", "entrepreneurship",
+    }
+
+    gpt_keywords = {
+        "coding", "programming", "software", "python",
+        "javascript", "artificial intelligence", "machine learning",
+        "computer science", "technology", "engineering",
+        "mathematics", "statistics", "data science",
+        "cybersecurity", "database", "physics", "chemistry",
+        "biology", "research", "algorithm",
+    }
+
+    claude_score = sum(
+        1 for word in claude_keywords if word in text
+    )
+
+    gpt_score = sum(
+        1 for word in gpt_keywords if word in text
+    )
+
+    # Design themes can influence the model choice.
+    if theme in {"rose", "lavender", "sand", "sunset"}:
+        claude_score += 1
+
+    if theme in {"cyberpunk", "graphite", "ocean"}:
+        gpt_score += 1
+
+    # Professional business topics favour Claude.
+    if theme == "corporate":
+        claude_score += 1
+
+    # If scores are equal, use GPT as the default.
+    if claude_score > gpt_score:
+        return "claude"
+
+    return "chatgpt"
+
+
 def _validate_input(payload):
-    """Validate all user-selected presentation settings."""
+    """Validate user presentation settings."""
 
     topic = str(payload.get("topic") or "").strip()
 
@@ -156,38 +184,21 @@ def _validate_input(payload):
     ).strip().lower()
 
     if audience not in ALLOWED_AUDIENCES:
-        raise ValueError(
-            "Please choose a valid audience."
-        )
+        raise ValueError("Please choose a valid audience.")
 
     tone = str(
         payload.get("tone") or "educational"
     ).strip().lower()
 
     if tone not in ALLOWED_TONES:
-        raise ValueError(
-            "Please choose a valid presentation tone."
-        )
+        raise ValueError("Please choose a valid presentation tone.")
 
     theme = str(
         payload.get("theme") or "aurora"
     ).strip().lower()
 
     if theme not in ALLOWED_THEMES:
-        raise ValueError(
-            "Please choose a valid design theme."
-        )
-
-    provider = str(
-        payload.get("provider")
-        or os.getenv("AI_PROVIDER")
-        or "chatgpt"
-    ).strip().lower()
-
-    if provider not in DEFAULT_MODELS:
-        raise ValueError(
-            "AI provider must be ChatGPT or Claude."
-        )
+        raise ValueError("Please choose a valid design theme.")
 
     return {
         "topic": topic,
@@ -195,16 +206,14 @@ def _validate_input(payload):
         "audience": audience,
         "tone": tone,
         "theme": theme,
-        "provider": provider,
     }
 
 
 def _build_prompt(topic, audience, tone, theme, slide_count):
-    """Build a detailed presentation-generation prompt."""
+    """Build the presentation-generation prompt."""
 
     theme_description = THEME_DESCRIPTIONS.get(
-        theme,
-        THEME_DESCRIPTIONS["aurora"]
+        theme, THEME_DESCRIPTIONS["aurora"]
     )
 
     return f"""Create a professional PowerPoint presentation.
@@ -275,9 +284,7 @@ def _extract_json(text):
     """Extract a JSON object from the model response."""
 
     if not text:
-        raise AIResponseError(
-            "The AI returned an empty response."
-        )
+        raise AIResponseError("The AI returned an empty response.")
 
     cleaned = text.strip()
 
@@ -292,7 +299,6 @@ def _extract_json(text):
 
     try:
         return json.loads(cleaned)
-
     except json.JSONDecodeError:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
@@ -309,21 +315,15 @@ def _extract_json(text):
 
 
 def _validate_output(data, expected_slides):
-    """Validate and clean the generated presentation."""
+    """Validate and clean generated presentation content."""
 
     if not isinstance(data, dict):
         raise AIResponseError(
             "The AI response was not a JSON object."
         )
 
-    title = str(
-        data.get("title") or ""
-    ).strip()[:160]
-
-    subtitle = str(
-        data.get("subtitle") or ""
-    ).strip()[:240]
-
+    title = str(data.get("title") or "").strip()[:160]
+    subtitle = str(data.get("subtitle") or "").strip()[:240]
     raw_slides = data.get("slides")
 
     if not title:
@@ -361,25 +361,18 @@ def _validate_output(data, expected_slides):
 
         for bullet in bullets_raw:
             bullet_text = str(bullet).strip()[:300]
-
             if bullet_text:
                 bullets.append(bullet_text)
 
         if len(bullets) < 2:
-            bullets.append(
-                "Key takeaway for this slide."
-            )
-
-        bullets = bullets[:6]
+            bullets.append("Key takeaway for this slide.")
 
         notes = str(
             raw.get("speaker_notes") or ""
         ).strip()[:2400]
 
         if not notes:
-            notes = (
-                "No speaker notes were generated for this slide."
-            )
+            notes = "No speaker notes were generated for this slide."
 
         layout = str(
             raw.get("layout") or "content"
@@ -395,7 +388,7 @@ def _validate_output(data, expected_slides):
         slides.append({
             "layout": layout,
             "title": slide_title or f"Slide {index}",
-            "bullets": bullets,
+            "bullets": bullets[:6],
             "speaker_notes": notes,
             "image_query": image_query,
         })
@@ -429,9 +422,7 @@ def _raise_api_error(response):
 
     try:
         error_data = response.json()
-        detail = (
-            error_data.get("error", {}).get("message", "")
-        )
+        detail = error_data.get("error", {}).get("message", "")
     except (ValueError, AttributeError):
         detail = (response.text or "")[:250]
 
@@ -450,16 +441,12 @@ def _call_ai(
     provider,
     strict=False
 ):
-    """Send a request to GPT or Claude through OpenRouter."""
+    """Call the internally selected model through OpenRouter."""
 
     api_key, base_url, model, timeout = _get_config(provider)
 
     prompt = _build_prompt(
-        topic,
-        audience,
-        tone,
-        theme,
-        slide_count
+        topic, audience, tone, theme, slide_count
     )
 
     if strict:
@@ -478,7 +465,7 @@ def _call_ai(
         "X-OpenRouter-Title": "SlideWala",
     }
 
-    payload = {
+    request_body = {
         "model": model,
         "messages": [
             {
@@ -488,15 +475,10 @@ def _call_ai(
                     "Return one valid JSON object and nothing else."
                 ),
             },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "user", "content": prompt},
         ],
         "temperature": 0.65,
-        "response_format": {
-            "type": "json_object"
-        },
+        "response_format": {"type": "json_object"},
     }
 
     url = f"{base_url}/chat/completions"
@@ -505,7 +487,7 @@ def _call_ai(
         response = requests.post(
             url,
             headers=headers,
-            json=payload,
+            json=request_body,
             timeout=timeout,
         )
 
@@ -513,12 +495,12 @@ def _call_ai(
             response.status_code == 400
             and "response_format" in (response.text or "")
         ):
-            payload.pop("response_format", None)
+            request_body.pop("response_format", None)
 
             response = requests.post(
                 url,
                 headers=headers,
-                json=payload,
+                json=request_body,
                 timeout=timeout,
             )
 
@@ -534,14 +516,12 @@ def _call_ai(
 
     except requests.Timeout:
         raise AIResponseError(
-            "The AI service took too long to respond. "
-            "Please try again."
+            "The AI service took too long to respond. Please try again."
         )
 
     except requests.ConnectionError:
         raise AIResponseError(
-            "Could not reach OpenRouter. "
-            "Check your internet connection."
+            "Could not reach OpenRouter. Check your connection."
         )
 
     except requests.RequestException as exc:
@@ -560,50 +540,71 @@ def _call_ai(
 
 
 def generate_presentation(payload):
-    """Generate, validate and optionally enrich a presentation."""
+    """Choose a model, generate a deck and optionally enrich its images."""
 
     inputs = _validate_input(payload)
 
-    last_error = None
-
-    for attempt in range(2):
-        try:
-            raw = _call_ai(
-                topic=inputs["topic"],
-                audience=inputs["audience"],
-                tone=inputs["tone"],
-                theme=inputs["theme"],
-                slide_count=inputs["slides"],
-                provider=inputs["provider"],
-                strict=(attempt == 1),
-            )
-
-            deck = _validate_output(
-                raw,
-                inputs["slides"]
-            )
-
-            deck["audience"] = inputs["audience"]
-            deck["tone"] = inputs["tone"]
-            deck["theme"] = inputs["theme"]
-            deck["provider"] = inputs["provider"]
-
-            # Image enrichment is optional. If Wikimedia fails,
-            # the text presentation should still be generated.
-            if os.getenv(
-                "ENABLE_WIKIMEDIA_IMAGES", "true"
-            ).lower() in ("true", "1", "yes", "on"):
-
-                try:
-                    enrich_slides_with_images(deck["slides"])
-                except Exception:
-                    pass
-
-            return deck
-
-        except AIResponseError as exc:
-            last_error = exc
-
-    raise last_error or AIResponseError(
-        "The AI could not generate a valid presentation."
+    preferred_provider = _choose_provider(
+        inputs["topic"],
+        inputs["theme"]
     )
+
+    other_provider = (
+        "claude" if preferred_provider == "chatgpt" else "chatgpt"
+    )
+
+    providers = [preferred_provider, other_provider]
+    last_error = None
+    deck = None
+
+    for provider in providers:
+        for attempt in range(2):
+            try:
+                raw = _call_ai(
+                    topic=inputs["topic"],
+                    audience=inputs["audience"],
+                    tone=inputs["tone"],
+                    theme=inputs["theme"],
+                    slide_count=inputs["slides"],
+                    provider=provider,
+                    strict=(attempt == 1),
+                )
+
+                deck = _validate_output(
+                    raw,
+                    inputs["slides"]
+                )
+                break
+
+            except AIConfigError:
+                # A missing or invalid shared API key will not
+                # improve by switching models.
+                raise
+
+            except AIResponseError as exc:
+                last_error = exc
+
+        if deck is not None:
+            break
+
+    if deck is None:
+        raise last_error or AIResponseError(
+            "Both AI models were unable to generate a presentation."
+        )
+
+    deck["audience"] = inputs["audience"]
+    deck["tone"] = inputs["tone"]
+    deck["theme"] = inputs["theme"]
+
+    # Do not expose the internal AI provider in the response.
+
+    if os.getenv(
+        "ENABLE_WIKIMEDIA_IMAGES", "true"
+    ).lower() in ("true", "1", "yes", "on"):
+
+        try:
+            enrich_slides_with_images(deck["slides"])
+        except Exception:
+            pass
+
+    return deck
