@@ -11,6 +11,7 @@
   const form = $("createForm");
   const topicInput = $("topic");
   const topicCount = $("topicCount");
+  const providerSelect = $("provider");
   const audienceSelect = $("audience");
   const toneSelect = $("tone");
   const themeSelect = $("theme");
@@ -51,7 +52,9 @@
   let toastTimer = null;
 
   // -----------------------------------------
-  // THEMES
+  // DESIGN THEMES
+  // Keep these names synchronized with the
+  // backend theme dictionaries.
   // -----------------------------------------
 
   const THEMES = {
@@ -89,6 +92,78 @@
       accent: "#0070c0",
       muted: "#6e7d91",
       card: "#ffffff"
+    },
+
+    ocean: {
+      bg: "#eaf6f8",
+      title: "#073b4c",
+      text: "#245563",
+      accent: "#00a6a6",
+      muted: "#668b96",
+      card: "#ffffff"
+    },
+
+    sunset: {
+      bg: "#fff1e9",
+      title: "#54251a",
+      text: "#704334",
+      accent: "#f26b38",
+      muted: "#a77a69",
+      card: "#fffaf6"
+    },
+
+    forest: {
+      bg: "#edf4ec",
+      title: "#173b2c",
+      text: "#365c47",
+      accent: "#32865a",
+      muted: "#78917d",
+      card: "#ffffff"
+    },
+
+    rose: {
+      bg: "#fff0f4",
+      title: "#552238",
+      text: "#78465a",
+      accent: "#df5b88",
+      muted: "#a77b8c",
+      card: "#ffffff"
+    },
+
+    lavender: {
+      bg: "#f2efff",
+      title: "#30245c",
+      text: "#504477",
+      accent: "#9474e8",
+      muted: "#887eaa",
+      card: "#ffffff"
+    },
+
+    graphite: {
+      bg: "#20242b",
+      title: "#ffffff",
+      text: "#e0e4e9",
+      accent: "#a9b4c0",
+      muted: "#a0a8b2",
+      card: "#303740"
+    },
+
+    sand: {
+      bg: "#f5efe3",
+      title: "#493b2b",
+      text: "#675742",
+      accent: "#bd8b45",
+      muted: "#9b8a72",
+      card: "#fffaf0"
+    },
+
+    cyberpunk: {
+      bg: "#151326",
+      title: "#ffffff",
+      text: "#e7defe",
+      accent: "#ff4fd8",
+      muted: "#aaa0ce",
+      card: "#29213d"
     }
   };
 
@@ -106,7 +181,7 @@
 
     toastTimer = setTimeout(() => {
       toastEl.className = "toast " + kind;
-    }, 3500);
+    }, 4500);
   }
 
   // -----------------------------------------
@@ -161,6 +236,7 @@
   function getRequestData() {
     return {
       topic: topicInput.value.trim(),
+      provider: providerSelect.value,
       audience: audienceSelect.value,
       tone: toneSelect.value,
       theme: themeSelect.value,
@@ -222,7 +298,8 @@
 
       if (!response.ok) {
         throw new Error(
-          data.error || `Generation failed (${response.status}).`
+          data.error ||
+          `The server returned error ${response.status}. Check the server logs.`
         );
       }
 
@@ -257,6 +334,8 @@
       });
 
     } catch (error) {
+      console.error("SlideWala generation error:", error);
+
       showToast(
         error.message || "Something went wrong. Please try again.",
         "error"
@@ -354,6 +433,7 @@
       THEMES[currentDeck.theme] || THEMES.aurora;
 
     stage.style.background = theme.bg;
+    stage.style.setProperty("--slide-card", theme.card);
 
     stage.innerHTML = buildSlideHtml(
       slide,
@@ -370,10 +450,10 @@
       "No speaker notes for this slide.";
 
     thumbnailsEl.querySelectorAll(".thumb").forEach(
-      (button, index) => {
+      (button, buttonIndex) => {
         button.classList.toggle(
           "active",
-          index === currentIndex
+          buttonIndex === currentIndex
         );
       }
     );
@@ -587,12 +667,13 @@
       showToast("Presentation outline copied.", "success");
 
     } catch (error) {
+      console.error("Clipboard error:", error);
       showToast("Could not copy the outline.", "error");
     }
   });
 
   // -----------------------------------------
-  // ACTUAL REGENERATION
+  // REGENERATE PRESENTATION
   // -----------------------------------------
 
   regenerateBtn.addEventListener("click", async () => {
@@ -603,7 +684,6 @@
       return;
     }
 
-    // Send the same topic and settings to the AI again.
     await generateDeck(
       { ...lastRequest },
       true
@@ -627,7 +707,8 @@
       const data = await safeJson(response);
 
       throw new Error(
-        data.error || `Download failed (${response.status}).`
+        data.error ||
+        `Download failed (${response.status}).`
       );
     }
 
@@ -684,6 +765,8 @@
       showToast("PowerPoint downloaded.", "success");
 
     } catch (error) {
+      console.error("PPTX export error:", error);
+
       showToast(
         error.message || "Could not download PowerPoint.",
         "error"
@@ -717,6 +800,8 @@
       showToast("PDF downloaded.", "success");
 
     } catch (error) {
+      console.error("PDF export error:", error);
+
       showToast(
         error.message || "Could not download PDF.",
         "error"
