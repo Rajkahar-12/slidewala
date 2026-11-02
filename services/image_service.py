@@ -1,162 +1,209 @@
-"""Wikimedia Commons image search, proxy, and slide enrichment."""
-import os
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote_plus, urlparse
 
+import os
 import requests
 
-WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php"
-ALLOWED_IMAGE_HOSTS = {"upload.wikimedia.org", "commons.wikimedia.org"}
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote_plus, urlparse
+
 
 USER_AGENT = os.getenv(
     "WIKIMEDIA_USER_AGENT",
-    "SlideWala/1.0 (https://example.com; slidewala@example.com)",
+    "SlideWala/1.0 (presentation generator)"
 )
 
-_SESSION = requests.Session()
-_SESSION.headers.update({"User-Agent": USER_AGENT})
+HEADERS = {
+    "User-Agent": USER_AGENT
+}
+
+ALLOWED_HOSTS = (
+    "upload.wikimedia.org",
+    "commons.wikimedia.org",
+)
 
 
-def _is_allowed_url(url: str) -> bool:
+def is_valid_wikimedia_url(url):
+    """Allow images only from Wikimedia domains."""
     try:
-        parsed = urlparse(url)
-        return (
-            parsed.scheme in ("http", "https")
-            and parsed.hostname in ALLOWED_IMAGE_HOSTS
+        host = urlparse(url).hostname
+        return host and any(
+            host == allowed or host.endswith("." + allowed)
+            for allowed in ALLOWED_HOSTS
         )
     except Exception:
         return False
 
 
-def proxy_image(url: str):
-    """Fetch an allowed image server-side and return (bytes, content_type)."""
-    if not _is_allowed_url(url):
-        raise ValueError("Image URL is not from an allowed source.")
+@lru_cache(maxsize=256)
+def _fetch_image_cached(url):
+    """Download and cache an image."""
+    if not is_valid_wikimedia_url(url):
+        return None
 
-    resp = _SESSION.get(url, timeout=15, allow_redirects=True)
-    if not resp.ok:
-        raise RuntimeError(f"Image request failed with status {resp.status_code}.")
-    if not _is_allowed_url(resp.url):
-        raise ValueError("Image redirected to a disallowed host.")
+    try:
+        with requests.get(
+            url,
+            headers=HEADERS,
+            timeout=8,
+            stream=True
+        ) as response:
 
-    content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if not content_type.startswith("image/"):
-        raise ValueError("The URL did not return an image.")
+            response.raise_for_status()
 
-    if len(resp.content) > 10 * 1024 * 1024:  # 10 MB max
-        raise ValueError("Image is too large.")
+            content_type = response.headers.get(
+                "Content-Type", ""
+            )
 
-    return resp.content, content_type
+            if not content_type.startswith("image/"):
+                return None
+
+            data = response.raw.read(10 * 1024 * 1024 + 1)
+
+            if len(data) > 10 * 1024 * 1024:
+                return None
+
+            return data, content_type
+
+    except requests.RequestException:
+        return None
 
 
-def search_wikimedia(query: str, limit: int = 6):
-    """Search Wikimedia Commons for bitmap images. Keyless API."""
-    if not query or not query.strip():
+def fetch_image_bytes(url):
+    """Get cached image bytes for PPTX and PDF exports."""
+    if not url:
+        return None
+
+    result = _fetch_image_cached(url)
+
+    if result:
+        return result[0]
+
+    return None
+
+
+def proxy_image(url):
+    """Return image bytes and content type for image proxy routes."""
+    if not url:
+        return None
+
+    result = _fetch_image_cached(url)
+
+    if result:
+        return result
+
+    return None
+
+
+@lru_cache(maxsize=256)
+def search_wikimedia(query, limit=6):
+    """Search Wikimedia Commons for relevant images."""
+    if not query:
         return []
+
+    api_url = "https://commons.wikimedia.org/w/api.php"
 
     params = {
         "action": "query",
         "generator": "search",
-        "gsrsearch": f"{query.strip()} filetype:bitmap",
-        "gsrnamespace": "6",
-        "gsrlimit": str(min(max(limit, 1), 10)),
+        "gsrsearch": "filetype:bitmap " + query,
+        "gsrnamespace": 6,
+        "gsrlimit": limit,
         "prop": "imageinfo",
-        "iiprop": "url|mime|size",
-        "iiurlwidth": "1600",
+        "iiprop": "url|extmetadata",
+        "iiurlwidth": 1200,
         "format": "json",
     }
 
     try:
-        resp = _SESSION.get(WIKIMEDIA_API, params=params, timeout=8)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception:
+        with requests.get(
+            api_url,
+            params=params,
+            headers=HEADERS,
+            timeout=6
+        ) as response:
+
+            response.raise_for_status()
+            payload = response.json()
+
+        pages = payload.get("query", {}).get("pages", {})
+
+        results = []
+
+        for page in pages.values():
+            image_info = page.get("imageinfo", [{}])[0]
+
+            image_url = image_info.get("thumburl")
+            if not image_url:
+                image_url = image_info.get("url")
+
+            if not image_url or not is_valid_wikimedia_url(image_url):
+                continue
+
+            metadata = image_info.get("extmetadata", {})
+
+            results.append({
+                "title": page.get("title", ""),
+                "url": image_url,
+                "description": metadata.get(
+                    "ImageDescription", {}
+                ).get("value", ""),
+                "license": metadata.get(
+                    "LicenseShortName", {}
+                ).get("value", ""),
+            })
+
+        return results
+
+    except (requests.RequestException, ValueError, KeyError):
         return []
 
-    pages = (payload.get("query") or {}).get("pages") or {}
-    results = []
 
-    for page in pages.values():
-        infos = page.get("imageinfo") or []
-        if not infos:
-            continue
-        info = infos[0]
-        mime = (info.get("mime") or "").lower()
-        if mime not in ("image/jpeg", "image/png", "image/webp"):
-            continue
+def _get_image_for_slide(slide):
+    """Find an optional Wikimedia image for one slide."""
+    title = slide.get("title", "")
+    bullets = slide.get("bullets", [])
 
-        width = int(info.get("width") or 0)
-        height = int(info.get("height") or 0)
-        if width < 500 or height < 300:
-            continue
+    query = " ".join(
+        [title] + [str(item) for item in bullets[:2]]
+    ).strip()
 
-        original = info.get("url")
-        if not original:
-            continue
-
-        results.append(
-            {
-                "title": (page.get("title") or "").replace("File:", ""),
-                "url": original,
-                "width": width,
-                "height": height,
-                "mime": mime,
-            }
-        )
-
-    return results
-
-
-def _score_image(item: dict) -> int:
-    """Prefer landscape images large enough for a 16:9 slide."""
-    width = item.get("width") or 0
-    height = item.get("height") or 0
-    if not width or not height:
-        return -1
-    ratio = width / height
-    score = 0
-    if 1.2 <= ratio <= 2.0:
-        score += 4
-    elif 0.8 <= ratio < 1.2:
-        score += 1
-    if width >= 1200:
-        score += 2
-    if width >= 2000:
-        score += 1
-    return score
-
-
-def _get_image_for_slide(slide: dict):
-    query = (slide.get("image_query") or "").strip()
     if not query:
         return slide
 
-    try:
-        candidates = search_wikimedia(query)
-        if not candidates:
-            return slide
+    images = search_wikimedia(query)
 
-        best = max(candidates, key=_score_image)
-        if _score_image(best) < 0:
-            return slide
+    if not images:
+        return slide
 
-        slide["image_source_url"] = best["url"]
-        slide["image_url"] = "/api/image?url=" + quote_plus(best["url"])
-        slide["image_alt"] = best["title"][:160]
-        slide["image_credit"] = "Wikimedia Commons"
-    except Exception:
-        pass  # Fail gracefully; slide will render without an image
+    selected = images[0]
+
+    slide["image_source_url"] = selected["url"]
+    slide["image_source"] = "wikimedia"
+    slide["image_license"] = selected.get("license", "")
+    slide["image_title"] = selected.get("title", "")
 
     return slide
 
 
-def enrich_slides_with_images(presentation: dict):
-    """Attach one relevant Wikimedia image to each slide in parallel."""
-    slides = presentation.get("slides") or []
-    if not slides:
-        return presentation
+def enrich_slides_with_images(slides):
+    """
+    Add optional Wikimedia images to slides.
+    If Wikimedia is unavailable, presentation generation continues.
+    """
+    if not isinstance(slides, list):
+        return slides
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        list(executor.map(_get_image_for_slide, slides))
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(_get_image_for_slide, slide)
+            for slide in slides
+            if isinstance(slide, dict)
+        ]
 
-    return presentation
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:
+                pass
+
+    return slides
