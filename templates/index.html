@@ -3,120 +3,163 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="SlideWala helps students and professionals create better presentations.">
-  <title>SlideWala — Present your ideas beautifully</title>
+  <meta name="description" content="SlideWala — premium AI presentation maker for students and professionals.">
+  <title>SlideWala — AI presentation maker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="#"><span class="brand-mark">S</span> SlideWala</a>
-    <nav class="nav-links" aria-label="Main navigation">
-      <a href="#features">Features</a><a href="#how">How it works</a>
-    </nav>
-    <a class="nav-cta" href="#create">Create a presentation <span>↗</span></a>
-  </header>
-
-  <main>
-    <section class="hero">
-      <div class="hero-copy">
-        <div class="eyebrow"><span class="spark">✦</span> YOUR IDEAS, BEAUTIFULLY PRESENTED</div>
-        <h1>Make your next<br><span>presentation</span> stand out.</h1>
-        <p class="hero-text">Create polished presentations for college, classrooms, meetings and big ideas — all in one simple workspace.</p>
-        <div class="hero-actions">
-          <a class="button primary" href="#create">Start creating <span>→</span></a>
-          <a class="button secondary" href="#how">See how it works</a>
-        </div>
-        <div class="trust-line"><span class="avatars">S&nbsp; P</span> Made for students and professionals</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">
+        <span class="brand-mark">S</span>
+        <span>SlideWala</span>
+      </a>
+      <nav class="side-nav" aria-label="Main navigation">
+        <a class="active" href="#create">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Create
+        </a>
+        <a href="#workspace" id="previewNav">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 22h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Preview
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="status-dot"><span></span> AI ready</div>
+        <p>Powered by OpenRouter, python-pptx and ReportLab.</p>
       </div>
-      <div class="preview-wrap" aria-label="Presentation preview">
-        <div class="preview-glow"></div>
-        <div class="slide-card">
-          <div class="slide-top"><span class="mini-brand">SW / PRESENTATION</span><span>01 — 08</span></div>
-          <div class="slide-content">
-            <div class="slide-kicker">THE BIG IDEA</div>
-            <div class="slide-title">Ideas that<br>move us <i>forward.</i></div>
-            <div class="slide-rule"></div>
-            <div class="slide-bottom"><span>DESIGN • THINK • PRESENT</span><span class="slide-orb"></span></div>
+    </aside>
+
+    <main class="main">
+      <header class="mobile-topbar">
+        <a class="brand" href="/"><span class="brand-mark">S</span> SlideWala</a>
+        <span class="mini-pill">Phase 3</span>
+      </header>
+
+      <section class="hero" id="create">
+        <div class="hero-copy">
+          <div class="eyebrow">AI PRESENTATION STUDIO</div>
+          <h1>From a topic to a<br><span>finished deck</span> in minutes.</h1>
+          <p>Generate a structured presentation with relevant photos, speaker notes, and real PowerPoint + PDF downloads.</p>
+        </div>
+
+        <form class="create-card" id="createForm">
+          <div class="field">
+            <label for="topic">What is your presentation about?</label>
+            <textarea id="topic" maxlength="200" rows="2" placeholder="e.g. How artificial intelligence is changing healthcare"></textarea>
+            <span class="field-hint"><span id="topicCount">0</span>/200</span>
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label for="audience">Audience</label>
+              <select id="audience">
+                <option value="student">Students</option>
+                <option value="teacher">Teachers</option>
+                <option value="professional">Professionals</option>
+                <option value="general" selected>General audience</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="tone">Tone</label>
+              <select id="tone">
+                <option value="educational" selected>Educational</option>
+                <option value="formal">Formal</option>
+                <option value="persuasive">Persuasive</option>
+                <option value="casual">Casual</option>
+                <option value="inspiring">Inspiring</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Number of slides</label>
+            <div class="segmented" id="slideCount" role="radiogroup" aria-label="Slide count">
+              <button type="button" data-count="5">5</button>
+              <button type="button" data-count="8">8</button>
+              <button type="button" data-count="10" class="active">10</button>
+              <button type="button" data-count="12">12</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="theme">Design theme</label>
+            <select id="theme">
+              <option value="aurora" selected>Aurora — soft purple</option>
+              <option value="midnight">Midnight — dark premium</option>
+              <option value="minimal">Minimal — clean white</option>
+              <option value="corporate">Corporate — blue</option>
+            </select>
+          </div>
+
+          <button class="btn btn-primary btn-generate" id="generateBtn" type="submit">
+            <span class="btn-label">Generate presentation</span>
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <p class="form-note">AI generation uses your server-side API key. Nothing sensitive is exposed in the browser.</p>
+        </form>
+      </section>
+
+      <section class="workspace hidden" id="workspace">
+        <div class="workspace-head">
+          <div>
+            <span class="pill">Generated deck</span>
+            <h2 id="deckTitle">Your presentation</h2>
+            <p id="deckSubtitle"></p>
+          </div>
+          <div class="workspace-actions">
+            <button class="btn btn-ghost" id="copyBtn" type="button">Copy outline</button>
+            <button class="btn btn-ghost" id="regenerateBtn" type="button">Regenerate</button>
+            <button class="btn btn-primary" id="downloadPptx" type="button">Download PPTX</button>
+            <button class="btn btn-secondary" id="downloadPdf" type="button">Download PDF</button>
           </div>
         </div>
-        <div class="float-tag tag-one">✦ Clean layouts</div>
-        <div class="float-tag tag-two"><span class="green-dot"></span> Your next great deck</div>
-      </div>
-    </section>
 
-    <section class="create-section" id="create">
-      <div class="section-heading">
-        <div><div class="eyebrow">LET'S GET STARTED</div><h2>What are you creating today?</h2></div>
-        <p>Choose your purpose. We'll help you shape the story.</p>
-      </div>
-      <div class="choice-grid">
-        <button class="choice-card selected" data-audience="student" type="button">
-          <span class="choice-icon student-icon">▤</span><span class="choice-title">For students</span>
-          <span class="choice-desc">Assignments, seminars, projects, research and class presentations.</span>
-          <span class="choice-foot">Explore student presentations <b>↗</b></span>
-        </button>
-        <button class="choice-card" data-audience="professional" type="button">
-          <span class="choice-icon pro-icon">▥</span><span class="choice-title">For professionals</span>
-          <span class="choice-desc">Business proposals, pitches, reports, training and team meetings.</span>
-          <span class="choice-foot">Explore professional decks <b>↗</b></span>
-        </button>
-      </div>
-      <div class="topic-panel">
-        <div class="topic-label">YOUR PRESENTATION WORKSPACE <span class="status-pill">PHASE 2 · AI READY</span></div>
-        <label for="topic">What is your presentation about?</label>
-        <div class="topic-input-row">
-          <input id="topic" type="text" placeholder="e.g. The future of artificial intelligence" maxlength="160">
-          <button id="createBtn" class="button primary" type="button">Continue <span>→</span></button>
-        </div>
-        <div class="slide-count-row">
-          <span class="slide-count-label">How many slides?</span>
-          <div class="slide-count-options" role="radiogroup" aria-label="Slide count">
-            <button type="button" class="count-btn" data-count="5">5</button>
-            <button type="button" class="count-btn" data-count="8">8</button>
-            <button type="button" class="count-btn selected" data-count="10">10</button>
-            <button type="button" class="count-btn" data-count="12">12</button>
+        <div class="preview-layout">
+          <div class="stage-wrap">
+            <div class="slide-stage" id="slideStage"></div>
+            <div class="stage-controls">
+              <button class="icon-btn" id="prevBtn" type="button" aria-label="Previous slide">&#8249;</button>
+              <span id="slideCounter">1 / 10</span>
+              <button class="icon-btn" id="nextBtn" type="button" aria-label="Next slide">&#8250;</button>
+            </div>
           </div>
-        </div>
-        <div class="topic-meta"><span>✦ Powered by your own AI API key (kept server-side)</span><span id="audienceLabel">Selected: Student</span></div>
-        <p id="notice" class="notice" role="status" aria-live="polite"></p>
-      </div>
-    </section>
 
-    <section class="results-section" id="results" hidden>
-      <div class="results-head">
-        <div>
-          <div class="eyebrow">YOUR PRESENTATION</div>
-          <h2 id="resultTitle"></h2>
-          <p id="resultSubtitle" class="result-subtitle"></p>
+          <aside class="preview-side">
+            <div class="thumbs-head">
+              <span>Slides</span>
+              <span id="thumbCount">10</span>
+            </div>
+            <div class="thumbnails" id="thumbnails"></div>
+            <div class="notes-card">
+              <h4>Speaker notes</h4>
+              <p id="speakerNotes">Select a slide to see its notes.</p>
+            </div>
+          </aside>
         </div>
-        <div class="results-actions">
-          <button id="copyBtn" class="button secondary" type="button">Copy outline</button>
-          <button id="resetBtn" class="button primary" type="button">Generate another <span>↻</span></button>
-        </div>
-      </div>
-      <div id="slidesList" class="slides-list"></div>
-    </section>
+      </section>
 
-    <section class="features-section" id="features">
-      <div class="eyebrow">BUILT FOR BETTER PRESENTATIONS</div>
-      <h2>Everything starts with a good idea.</h2>
-      <div class="feature-grid">
-        <article class="feature"><span>✦</span><h3>AI presentation maker</h3><p>Turn a topic or prompt into a clear slide-by-slide story, with speaker notes.</p></article>
-        <article class="feature"><span>▧</span><h3>Beautiful templates</h3><p>Choose clean, modern styles for academic and professional work.</p></article>
-        <article class="feature"><span>↗</span><h3>Export and present</h3><p>Copy the full outline today — PowerPoint export arrives in Phase 3.</p></article>
-      </div>
-    </section>
+      <footer class="site-footer">
+        <span>© 2026 SlideWala</span>
+        <span>Built with Flask, OpenRouter, python-pptx and ReportLab.</span>
+      </footer>
+    </main>
+  </div>
 
-    <section class="how-section" id="how">
-      <div><div class="eyebrow">SIMPLE BY DESIGN</div><h2>From blank page<br>to presentation.</h2></div>
-      <div class="steps">
-        <div><b>01</b><span><strong>Choose your purpose</strong><small>Student or professional.</small></span></div>
-        <div><b>02</b><span><strong>Describe your topic</strong><small>Tell SlideWala what you want to present.</small></span></div>
-        <div><b>03</b><span><strong>Preview and copy</strong><small>Review slides and copy the full outline.</small></span></div>
-      </div>
-    </section>
-  </main>
-  <footer><a class="brand" href="#"><span class="brand-mark">S</span> SlideWala</a><span>Make every slide count.</span><span>© 2026 SlideWala</span></footer>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="loading-card">
+      <div class="loader-ring"></div>
+      <h3 id="loadingTitle">Designing your presentation</h3>
+      <p id="loadingMessage">Writing the story and finding relevant visuals…</p>
+      <div class="loading-bar"><span></span></div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>
