@@ -1,5 +1,5 @@
 
-"""SlideWala - Flask application."""
+"""SlideWala - optimized Flask application."""
 
 import io
 import os
@@ -8,33 +8,33 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request, send_file
 
-# Always load configuration from the folder containing app.py.
+
 BASE_DIR = Path(__file__).resolve().parent
+
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 load_dotenv(BASE_DIR / ".env")
 
-from flask import Flask, jsonify, render_template, request, send_file
-
-from services.ai_service import (
-    AIConfigError,
-    AIResponseError,
-    generate_presentation,
-)
-from services.image_service import proxy_image
-from services.pdf_service import build_pdf
-from services.pptx_service import build_pptx
-
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "slidewala-local-dev-key")
+
+app.config["SECRET_KEY"] = os.getenv(
+    "SECRET_KEY",
+    "slidewala-local-dev-key"
+)
+
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+
+# Cache static assets for a short period.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 
 
 def safe_filename(title):
     """Create a safe filename from the presentation title."""
+
     title = str(title or "slidewala-presentation")
 
     name = re.sub(r"[^a-zA-Z0-9 _-]", "", title)
@@ -51,24 +51,32 @@ def home():
 
 @app.get("/health")
 def health():
-    """Simple deployment health check."""
+    """Lightweight health check for Render and uptime monitoring."""
+
     return jsonify({
         "status": "ok",
         "app": "SlideWala",
-        "phase": 3,
         "ai_configured": bool(
-            os.getenv("OPENROUTER_API_KEY") or os.getenv("AI_API_KEY")
+            os.getenv("OPENROUTER_API_KEY")
+            or os.getenv("AI_API_KEY")
         ),
-        "services_directory_exists": (BASE_DIR / "services").is_dir(),
     })
 
 
 @app.post("/api/generate")
 def api_generate():
+    from services.ai_service import (
+        AIConfigError,
+        AIResponseError,
+        generate_presentation,
+    )
+
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
-        return jsonify(error="Invalid request. Please try again."), 400
+        return jsonify(
+            error="Invalid request. Please try again."
+        ), 400
 
     try:
         deck = generate_presentation(payload)
@@ -85,6 +93,7 @@ def api_generate():
 
     except Exception:
         app.logger.exception("Presentation generation failed")
+
         return jsonify(
             error="Presentation generation failed. Please try again."
         ), 500
@@ -92,13 +101,20 @@ def api_generate():
 
 @app.get("/api/image")
 def api_image():
+    from services.image_service import proxy_image
+
     url = (request.args.get("url") or "").strip()
 
     if not url:
         return jsonify(error="Missing image URL."), 400
 
     try:
-        image_data, content_type = proxy_image(url)
+        result = proxy_image(url)
+
+        if not result:
+            return jsonify(error="Image is unavailable."), 404
+
+        image_data, content_type = result
 
         return send_file(
             io.BytesIO(image_data),
@@ -111,11 +127,16 @@ def api_image():
 
     except Exception:
         app.logger.exception("Image loading failed")
-        return jsonify(error="Could not load this image."), 502
+
+        return jsonify(
+            error="Could not load this image."
+        ), 502
 
 
 @app.post("/api/export/pptx")
 def export_pptx():
+    from services.pptx_service import build_pptx
+
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
@@ -131,7 +152,9 @@ def export_pptx():
                 "presentationml.presentation"
             ),
             as_attachment=True,
-            download_name=safe_filename(payload.get("title")) + ".pptx",
+            download_name=(
+                safe_filename(payload.get("title")) + ".pptx"
+            ),
         )
 
     except ValueError as exc:
@@ -139,6 +162,7 @@ def export_pptx():
 
     except Exception:
         app.logger.exception("PowerPoint export failed")
+
         return jsonify(
             error="Could not create the PowerPoint file."
         ), 500
@@ -146,6 +170,8 @@ def export_pptx():
 
 @app.post("/api/export/pdf")
 def export_pdf():
+    from services.pdf_service import build_pdf
+
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
@@ -158,7 +184,9 @@ def export_pdf():
             buffer,
             mimetype="application/pdf",
             as_attachment=True,
-            download_name=safe_filename(payload.get("title")) + ".pdf",
+            download_name=(
+                safe_filename(payload.get("title")) + ".pdf"
+            ),
         )
 
     except ValueError as exc:
@@ -166,6 +194,7 @@ def export_pdf():
 
     except Exception:
         app.logger.exception("PDF export failed")
+
         return jsonify(
             error="Could not create the PDF file."
         ), 500
