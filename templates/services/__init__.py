@@ -1,1 +1,0 @@
-# SlideWala services package
