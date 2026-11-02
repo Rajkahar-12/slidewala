@@ -10,13 +10,57 @@ from services.image_service import enrich_slides_with_images
 
 
 ALLOWED_SLIDE_COUNTS = {5, 8, 10, 12}
-ALLOWED_AUDIENCES = {"student", "teacher", "professional", "general"}
-ALLOWED_TONES = {"educational", "formal", "persuasive", "casual", "inspiring"}
-ALLOWED_THEMES = {"midnight", "aurora", "minimal", "corporate"}
+
+ALLOWED_AUDIENCES = {
+    "student", "teacher", "professional", "general"
+}
+
+ALLOWED_TONES = {
+    "educational", "formal", "persuasive", "casual", "inspiring"
+}
+
+# Keep these theme names synchronized with the frontend
+# and PowerPoint/PDF export services.
+ALLOWED_THEMES = {
+    "aurora",
+    "midnight",
+    "minimal",
+    "corporate",
+    "ocean",
+    "sunset",
+    "forest",
+    "rose",
+    "lavender",
+    "graphite",
+    "sand",
+    "cyberpunk",
+}
+
+THEME_DESCRIPTIONS = {
+    "aurora": "soft purple, elegant gradients and light backgrounds",
+    "midnight": "premium dark backgrounds with violet accents",
+    "minimal": "clean white backgrounds and simple typography",
+    "corporate": "professional blue, white and business styling",
+    "ocean": "fresh teal, aqua and ocean-inspired colours",
+    "sunset": "warm orange, peach and sunset-inspired colours",
+    "forest": "natural green, earthy and calm colours",
+    "rose": "soft pink, rose and elegant styling",
+    "lavender": "light violet, lavender and elegant styling",
+    "graphite": "modern dark grey, silver and neutral styling",
+    "sand": "warm beige, cream and natural neutral colours",
+    "cyberpunk": "dark futuristic backgrounds with neon pink accents",
+}
 
 ALLOWED_LAYOUTS = {
-    "title", "intro", "content", "image-left", "image-right",
-    "full-image", "comparison", "conclusion", "references",
+    "title",
+    "intro",
+    "content",
+    "image-left",
+    "image-right",
+    "full-image",
+    "comparison",
+    "conclusion",
+    "references",
 }
 
 DEFAULT_MODELS = {
@@ -60,7 +104,6 @@ def _get_config(provider="chatgpt"):
     if provider not in DEFAULT_MODELS:
         raise ValueError("Please select ChatGPT or Claude.")
 
-    # Model IDs are selected through OpenRouter.
     if provider in ("chatgpt", "openai"):
         model = (
             os.getenv("OPENAI_MODEL")
@@ -83,13 +126,17 @@ def _get_config(provider="chatgpt"):
 
 
 def _validate_input(payload):
+    """Validate all user-selected presentation settings."""
+
     topic = str(payload.get("topic") or "").strip()
 
     if not topic:
         raise ValueError("Please enter a presentation topic.")
 
     if len(topic) > 200:
-        raise ValueError("Topic is too long. Keep it under 200 characters.")
+        raise ValueError(
+            "Topic is too long. Keep it under 200 characters."
+        )
 
     try:
         slide_count = int(payload.get("slides"))
@@ -97,8 +144,12 @@ def _validate_input(payload):
         raise ValueError("Please choose a valid slide count.")
 
     if slide_count not in ALLOWED_SLIDE_COUNTS:
-        allowed = ", ".join(str(n) for n in sorted(ALLOWED_SLIDE_COUNTS))
-        raise ValueError(f"Slide count must be one of: {allowed}.")
+        allowed = ", ".join(
+            str(number) for number in sorted(ALLOWED_SLIDE_COUNTS)
+        )
+        raise ValueError(
+            f"Slide count must be one of: {allowed}."
+        )
 
     audience = str(
         payload.get("audience") or "general"
@@ -106,7 +157,7 @@ def _validate_input(payload):
 
     if audience not in ALLOWED_AUDIENCES:
         raise ValueError(
-            "Audience must be student, teacher, professional, or general."
+            "Please choose a valid audience."
         )
 
     tone = str(
@@ -115,7 +166,7 @@ def _validate_input(payload):
 
     if tone not in ALLOWED_TONES:
         raise ValueError(
-            "Tone must be educational, formal, persuasive, casual, or inspiring."
+            "Please choose a valid presentation tone."
         )
 
     theme = str(
@@ -124,7 +175,7 @@ def _validate_input(payload):
 
     if theme not in ALLOWED_THEMES:
         raise ValueError(
-            "Theme must be midnight, aurora, minimal, or corporate."
+            "Please choose a valid design theme."
         )
 
     provider = str(
@@ -134,7 +185,9 @@ def _validate_input(payload):
     ).strip().lower()
 
     if provider not in DEFAULT_MODELS:
-        raise ValueError("AI provider must be ChatGPT or Claude.")
+        raise ValueError(
+            "AI provider must be ChatGPT or Claude."
+        )
 
     return {
         "topic": topic,
@@ -147,15 +200,34 @@ def _validate_input(payload):
 
 
 def _build_prompt(topic, audience, tone, theme, slide_count):
+    """Build a detailed presentation-generation prompt."""
+
+    theme_description = THEME_DESCRIPTIONS.get(
+        theme,
+        THEME_DESCRIPTIONS["aurora"]
+    )
+
     return f"""Create a professional PowerPoint presentation.
 
 Topic: {topic}
 Audience: {audience}
 Tone: {tone}
-Visual theme: {theme}
+
+Selected visual theme: {theme}
+Visual theme description: {theme_description}
+
 Exact number of slides: {slide_count}
 
-Requirements:
+DESIGN REQUIREMENTS:
+
+- Follow the selected visual theme consistently.
+- Use the theme's colours, visual mood and design style.
+- Make slide titles clear and visually interesting.
+- Avoid unnecessarily long text.
+- Use concise, useful bullet points.
+- Make the presentation look professionally designed.
+
+CONTENT REQUIREMENTS:
 
 - Return exactly {slide_count} slides.
 - Slide 1 must be a strong title or introduction slide.
@@ -200,8 +272,12 @@ Do not include Markdown or explanations outside the JSON.
 
 
 def _extract_json(text):
+    """Extract a JSON object from the model response."""
+
     if not text:
-        raise AIResponseError("The AI returned an empty response.")
+        raise AIResponseError(
+            "The AI returned an empty response."
+        )
 
     cleaned = text.strip()
 
@@ -233,11 +309,20 @@ def _extract_json(text):
 
 
 def _validate_output(data, expected_slides):
-    if not isinstance(data, dict):
-        raise AIResponseError("The AI response was not a JSON object.")
+    """Validate and clean the generated presentation."""
 
-    title = str(data.get("title") or "").strip()[:160]
-    subtitle = str(data.get("subtitle") or "").strip()[:240]
+    if not isinstance(data, dict):
+        raise AIResponseError(
+            "The AI response was not a JSON object."
+        )
+
+    title = str(
+        data.get("title") or ""
+    ).strip()[:160]
+
+    subtitle = str(
+        data.get("subtitle") or ""
+    ).strip()[:240]
 
     raw_slides = data.get("slides")
 
@@ -247,7 +332,9 @@ def _validate_output(data, expected_slides):
         )
 
     if not isinstance(raw_slides, list) or not raw_slides:
-        raise AIResponseError("The AI response is missing slides.")
+        raise AIResponseError(
+            "The AI response is missing slides."
+        )
 
     if len(raw_slides) != expected_slides:
         raise AIResponseError(
@@ -279,7 +366,9 @@ def _validate_output(data, expected_slides):
                 bullets.append(bullet_text)
 
         if len(bullets) < 2:
-            bullets.append("Key takeaway for this slide.")
+            bullets.append(
+                "Key takeaway for this slide."
+            )
 
         bullets = bullets[:6]
 
@@ -288,7 +377,9 @@ def _validate_output(data, expected_slides):
         ).strip()[:2400]
 
         if not notes:
-            notes = "No speaker notes were generated for this slide."
+            notes = (
+                "No speaker notes were generated for this slide."
+            )
 
         layout = str(
             raw.get("layout") or "content"
@@ -321,14 +412,54 @@ def _validate_output(data, expected_slides):
     }
 
 
-def _call_ai(topic, audience, tone, theme, slide_count,
-             provider, strict=False):
-    """Send the request to GPT or Claude through OpenRouter."""
+def _raise_api_error(response):
+    """Convert OpenRouter errors into useful application errors."""
+
+    if response.status_code in (401, 403):
+        raise AIConfigError(
+            "OpenRouter rejected your API key. "
+            "Check OPENROUTER_API_KEY."
+        )
+
+    if response.status_code == 429:
+        raise AIResponseError(
+            "OpenRouter is rate-limiting requests. "
+            "Check your credits and try again."
+        )
+
+    try:
+        error_data = response.json()
+        detail = (
+            error_data.get("error", {}).get("message", "")
+        )
+    except (ValueError, AttributeError):
+        detail = (response.text or "")[:250]
+
+    raise AIResponseError(
+        f"OpenRouter error ({response.status_code}): "
+        f"{detail or 'Unknown error'}"
+    )
+
+
+def _call_ai(
+    topic,
+    audience,
+    tone,
+    theme,
+    slide_count,
+    provider,
+    strict=False
+):
+    """Send a request to GPT or Claude through OpenRouter."""
 
     api_key, base_url, model, timeout = _get_config(provider)
 
     prompt = _build_prompt(
-        topic, audience, tone, theme, slide_count
+        topic,
+        audience,
+        tone,
+        theme,
+        slide_count
     )
 
     if strict:
@@ -363,52 +494,54 @@ def _call_ai(topic, audience, tone, theme, slide_count,
             },
         ],
         "temperature": 0.65,
-        "response_format": {"type": "json_object"},
+        "response_format": {
+            "type": "json_object"
+        },
     }
 
     url = f"{base_url}/chat/completions"
 
     try:
-        with requests.post(
+        response = requests.post(
             url,
             headers=headers,
             json=payload,
             timeout=timeout,
-        ) as response:
+        )
 
-            # Retry without response_format if the model
-            # does not support JSON mode.
-            if (
-                response.status_code == 400
-                and "response_format" in (response.text or "")
-            ):
-                payload.pop("response_format", None)
+        if (
+            response.status_code == 400
+            and "response_format" in (response.text or "")
+        ):
+            payload.pop("response_format", None)
 
-                with requests.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                    timeout=timeout,
-                ) as retry_response:
-                    body = retry_response.json() if retry_response.ok else None
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
 
-                    if not retry_response.ok:
-                        _raise_api_error(retry_response)
+        if not response.ok:
+            _raise_api_error(response)
 
-            else:
-                body = response.json() if response.ok else None
-
-                if not response.ok:
-                    _raise_api_error(response)
+        try:
+            body = response.json()
+        except ValueError:
+            raise AIResponseError(
+                "OpenRouter returned an invalid response."
+            )
 
     except requests.Timeout:
         raise AIResponseError(
-            "The AI service took too long to respond. Please try again."
+            "The AI service took too long to respond. "
+            "Please try again."
         )
 
     except requests.ConnectionError:
         raise AIResponseError(
-            "Could not reach OpenRouter. Check your internet connection."
+            "Could not reach OpenRouter. "
+            "Check your internet connection."
         )
 
     except requests.RequestException as exc:
@@ -426,30 +559,9 @@ def _call_ai(topic, audience, tone, theme, slide_count,
     return _extract_json(content)
 
 
-def _raise_api_error(response):
-    if response.status_code in (401, 403):
-        raise AIConfigError(
-            "OpenRouter rejected your API key. Check OPENROUTER_API_KEY."
-        )
-
-    if response.status_code == 429:
-        raise AIResponseError(
-            "OpenRouter is rate-limiting requests. "
-            "Check your credits and try again."
-        )
-
-    try:
-        detail = response.json().get("error", {}).get("message", "")
-    except (ValueError, AttributeError):
-        detail = (response.text or "")[:250]
-
-    raise AIResponseError(
-        f"OpenRouter error ({response.status_code}): "
-        f"{detail or 'Unknown error'}"
-    )
-
-
 def generate_presentation(payload):
+    """Generate, validate and optionally enrich a presentation."""
+
     inputs = _validate_input(payload)
 
     last_error = None
@@ -476,8 +588,8 @@ def generate_presentation(payload):
             deck["theme"] = inputs["theme"]
             deck["provider"] = inputs["provider"]
 
-            # Optional Wikimedia images.
-            # If image search fails, the presentation still works.
+            # Image enrichment is optional. If Wikimedia fails,
+            # the text presentation should still be generated.
             if os.getenv(
                 "ENABLE_WIKIMEDIA_IMAGES", "true"
             ).lower() in ("true", "1", "yes", "on"):
