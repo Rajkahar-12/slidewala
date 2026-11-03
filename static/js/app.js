@@ -11,6 +11,7 @@
   const toneSelect = $("tone");
   const themeSelect = $("theme");
   const slideCountGroup = $("slideCount");
+  const contentLengthGroup = $("contentLength");
   const generateBtn = $("generateBtn");
 
   const workspace = $("workspace");
@@ -38,6 +39,7 @@
   let currentDeck = null;
   let currentIndex = 0;
   let selectedSlideCount = 10;
+  let selectedContentLength = "medium";
   let lastRequest = null;
   let isBusy = false;
   let toastTimer = null;
@@ -59,9 +61,12 @@
 
   function showToast(message, kind = "") {
     if (!toastEl) return;
+
     toastEl.textContent = message;
     toastEl.className = "toast show " + kind;
+
     clearTimeout(toastTimer);
+
     toastTimer = setTimeout(() => {
       toastEl.className = "toast " + kind;
     }, 4500);
@@ -104,19 +109,27 @@
     );
   }
 
+  // REQUEST DATA
+
   function getRequestData() {
     return {
       topic: topicInput.value.trim(),
       audience: audienceSelect.value,
       tone: toneSelect.value,
       theme: themeSelect.value,
-      slides: selectedSlideCount
+      slides: selectedSlideCount,
+      content_length: selectedContentLength
     };
   }
 
-  // SLIDE COUNT
+  // SLIDE COUNT SELECTION
 
   slideCountGroup.querySelectorAll("button").forEach((button) => {
+    button.setAttribute(
+      "aria-checked",
+      button.classList.contains("active") ? "true" : "false"
+    );
+
     button.addEventListener("click", () => {
       slideCountGroup.querySelectorAll("button").forEach((item) => {
         item.classList.remove("active");
@@ -125,7 +138,34 @@
 
       button.classList.add("active");
       button.setAttribute("aria-checked", "true");
+
       selectedSlideCount = Number(button.dataset.count);
+    });
+  });
+
+  // CONTENT LENGTH SELECTION
+
+  contentLengthGroup.querySelectorAll("button").forEach((button) => {
+    const isSelected = button.dataset.length === selectedContentLength;
+
+    button.classList.toggle("active", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+
+    button.addEventListener("click", () => {
+      const value = button.dataset.length;
+
+      if (!["short", "medium", "detailed"].includes(value)) {
+        return;
+      }
+
+      selectedContentLength = value;
+
+      contentLengthGroup.querySelectorAll("button").forEach((item) => {
+        const selected = item.dataset.length === value;
+
+        item.classList.toggle("active", selected);
+        item.setAttribute("aria-pressed", String(selected));
+      });
     });
   });
 
@@ -173,7 +213,9 @@
       workspace.classList.remove("hidden");
 
       showToast(
-        isRegeneration ? "A new presentation has been generated." : "Your presentation is ready.",
+        isRegeneration
+          ? "A new presentation has been generated."
+          : "Your presentation is ready.",
         "success"
       );
 
@@ -181,7 +223,11 @@
 
     } catch (error) {
       console.error("SlideWala generation error:", error);
-      showToast(error.message || "Something went wrong. Please try again.", "error");
+
+      showToast(
+        error.message || "Something went wrong. Please try again.",
+        "error"
+      );
 
     } finally {
       setBusy(false);
@@ -190,6 +236,7 @@
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+
     if (isBusy) return;
 
     const requestData = getRequestData();
@@ -223,6 +270,7 @@
 
     currentDeck.slides.forEach((slide, index) => {
       const button = document.createElement("button");
+
       button.type = "button";
       button.className = "thumb";
 
@@ -232,6 +280,7 @@
       `;
 
       button.addEventListener("click", () => renderSlide(index));
+
       thumbnailsEl.appendChild(button);
     });
   }
@@ -242,6 +291,7 @@
     if (!currentDeck) return;
 
     const total = currentDeck.slides.length;
+
     currentIndex = Math.max(0, Math.min(index, total - 1));
 
     const slide = currentDeck.slides[currentIndex];
@@ -249,10 +299,13 @@
 
     stage.style.background = theme.bg;
     stage.style.setProperty("--slide-card", theme.card);
+
     stage.innerHTML = buildSlideHtml(slide, currentIndex, total, theme);
 
     slideCounter.textContent = `${currentIndex + 1} / ${total}`;
-    speakerNotesEl.textContent = slide.speaker_notes || "No speaker notes for this slide.";
+
+    speakerNotesEl.textContent =
+      slide.speaker_notes || "No speaker notes for this slide.";
 
     thumbnailsEl.querySelectorAll(".thumb").forEach((button, buttonIndex) => {
       button.classList.toggle("active", buttonIndex === currentIndex);
@@ -275,7 +328,10 @@
       : `SLIDE ${String(index + 1).padStart(2, "0")}`;
 
     const bullets = Array.isArray(slide.bullets) ? slide.bullets : [];
-    const bulletsHtml = bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("");
+
+    const bulletsHtml = bullets
+      .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
+      .join("");
 
     const mediaHtml = hasImage
       ? `
@@ -333,6 +389,7 @@
 
   document.addEventListener("keydown", (event) => {
     if (!currentDeck || isBusy) return;
+
     if (event.key === "ArrowLeft") renderSlide(currentIndex - 1);
     if (event.key === "ArrowRight") renderSlide(currentIndex + 1);
   });
@@ -350,9 +407,11 @@
 
   function buildOutlineText(deck) {
     const lines = [];
+
     lines.push("# " + (deck.title || "Presentation"));
 
     if (deck.subtitle) lines.push(deck.subtitle);
+
     lines.push("");
 
     deck.slides.forEach((slide, index) => {
@@ -382,6 +441,7 @@
         await navigator.clipboard.writeText(text);
       } else {
         const textarea = document.createElement("textarea");
+
         textarea.value = text;
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
@@ -390,9 +450,12 @@
         textarea.select();
 
         const success = document.execCommand("copy");
+
         document.body.removeChild(textarea);
 
-        if (!success) throw new Error("Clipboard copy was blocked.");
+        if (!success) {
+          throw new Error("Clipboard copy was blocked.");
+        }
       }
 
       showToast("Presentation outline copied.", "success");
@@ -427,11 +490,17 @@
 
     if (!response.ok) {
       const data = await safeJson(response);
-      throw new Error(data.error || `Download failed (${response.status}).`);
+
+      throw new Error(
+        data.error || `Download failed (${response.status}).`
+      );
     }
 
     const blob = await response.blob();
-    if (!blob.size) throw new Error("The downloaded file is empty.");
+
+    if (!blob.size) {
+      throw new Error("The downloaded file is empty.");
+    }
 
     const disposition = response.headers.get("content-disposition") || "";
     const match = /filename="?([^";]+)"?/i.exec(disposition);
@@ -455,14 +524,29 @@
   downloadPptxBtn.addEventListener("click", async () => {
     if (!currentDeck || isBusy) return;
 
-    setBusy(true, "Building PowerPoint", "Creating your editable PPTX presentation...");
+    setBusy(
+      true,
+      "Building PowerPoint",
+      "Creating your editable PPTX presentation..."
+    );
 
     try {
-      await downloadBlob("/api/export/pptx", currentDeck, "slidewala-presentation.pptx");
+      await downloadBlob(
+        "/api/export/pptx",
+        currentDeck,
+        "slidewala-presentation.pptx"
+      );
+
       showToast("PowerPoint downloaded.", "success");
+
     } catch (error) {
       console.error("PPTX export error:", error);
-      showToast(error.message || "Could not download PowerPoint.", "error");
+
+      showToast(
+        error.message || "Could not download PowerPoint.",
+        "error"
+      );
+
     } finally {
       setBusy(false);
     }
@@ -473,14 +557,29 @@
   downloadPdfBtn.addEventListener("click", async () => {
     if (!currentDeck || isBusy) return;
 
-    setBusy(true, "Building PDF", "Creating your presentation PDF...");
+    setBusy(
+      true,
+      "Building PDF",
+      "Creating your presentation PDF..."
+    );
 
     try {
-      await downloadBlob("/api/export/pdf", currentDeck, "slidewala-presentation.pdf");
+      await downloadBlob(
+        "/api/export/pdf",
+        currentDeck,
+        "slidewala-presentation.pdf"
+      );
+
       showToast("PDF downloaded.", "success");
+
     } catch (error) {
       console.error("PDF export error:", error);
-      showToast(error.message || "Could not download PDF.", "error");
+
+      showToast(
+        error.message || "Could not download PDF.",
+        "error"
+      );
+
     } finally {
       setBusy(false);
     }
