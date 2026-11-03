@@ -1,4 +1,3 @@
-
 """Optimized Wikimedia image service for SlideWala."""
 
 import os
@@ -25,6 +24,12 @@ IMAGE_SEARCH_TIMEOUT = 8
 IMAGE_DOWNLOAD_TIMEOUT = 10
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 MAX_WORKERS = 8
+
+# Layouts that never show a picture.
+NO_IMAGE_LAYOUTS = {
+    "title", "conclusion", "references",
+    "section", "stats", "two-column", "timeline", "quote",
+}
 
 
 def is_valid_wikimedia_url(url):
@@ -228,7 +233,7 @@ def enrich_slides_with_images(slides):
         ).strip().lower()
 
         # These slides do not need Wikimedia images.
-        if layout in {"title", "conclusion", "references"}:
+        if layout in NO_IMAGE_LAYOUTS:
             continue
 
         if title in {"thank you", "thank you!"}:
