@@ -19,10 +19,26 @@ ALLOWED_TONES = {
     "educational", "formal", "persuasive", "casual", "inspiring"
 }
 
-ALLOWED_THEMES = {
-    "aurora", "midnight", "minimal", "corporate",
-    "ocean", "sunset", "forest", "rose",
-    "lavender", "graphite", "sand", "cyberpunk",
+ALLOWED_CONTENT_LENGTHS = {
+    "short", "medium", "detailed"
+}
+
+CONTENT_LENGTH_GUIDES = {
+    "short": (
+        "Write exactly 2 to 3 concise bullet points per slide. "
+        "Each point should communicate one useful idea clearly "
+        "without unnecessary explanation."
+    ),
+    "medium": (
+        "Write exactly 3 to 4 meaningful bullet points per slide. "
+        "Explain each idea clearly with enough detail to be useful, "
+        "but keep the slide easy to read."
+    ),
+    "detailed": (
+        "Write exactly 4 to 5 informative bullet points per slide. "
+        "Give each point a useful explanation, include relevant "
+        "details or examples, and avoid unnecessary repetition."
+    ),
 }
 
 THEME_DESCRIPTIONS = {
@@ -135,18 +151,15 @@ def _choose_provider(topic, theme):
         1 for word in gpt_keywords if word in text
     )
 
-    # Design themes can influence the model choice.
     if theme in {"rose", "lavender", "sand", "sunset"}:
         claude_score += 1
 
     if theme in {"cyberpunk", "graphite", "ocean"}:
         gpt_score += 1
 
-    # Professional business topics favour Claude.
     if theme == "corporate":
         claude_score += 1
 
-    # If scores are equal, use GPT as the default.
     if claude_score > gpt_score:
         return "claude"
 
@@ -197,8 +210,15 @@ def _validate_input(payload):
         payload.get("theme") or "aurora"
     ).strip().lower()
 
-    if theme not in ALLOWED_THEMES:
+    if theme not in THEME_DESCRIPTIONS:
         raise ValueError("Please choose a valid design theme.")
+
+    content_length = str(
+        payload.get("content_length") or "medium"
+    ).strip().lower()
+
+    if content_length not in ALLOWED_CONTENT_LENGTHS:
+        raise ValueError("Please choose a valid content length.")
 
     return {
         "topic": topic,
@@ -206,14 +226,27 @@ def _validate_input(payload):
         "audience": audience,
         "tone": tone,
         "theme": theme,
+        "content_length": content_length,
     }
 
 
-def _build_prompt(topic, audience, tone, theme, slide_count):
+def _build_prompt(
+    topic,
+    audience,
+    tone,
+    theme,
+    slide_count,
+    content_length="medium",
+):
     """Build the presentation-generation prompt."""
 
     theme_description = THEME_DESCRIPTIONS.get(
         theme, THEME_DESCRIPTIONS["aurora"]
+    )
+
+    content_guide = CONTENT_LENGTH_GUIDES.get(
+        content_length,
+        CONTENT_LENGTH_GUIDES["medium"]
     )
 
     return f"""Create a professional PowerPoint presentation.
@@ -227,24 +260,39 @@ Visual theme description: {theme_description}
 
 Exact number of slides: {slide_count}
 
+Selected content length: {content_length}
+
+CONTENT LENGTH INSTRUCTIONS:
+
+{content_guide}
+
+IMPORTANT:
+- Follow the selected content length consistently.
+- Do not use extremely short or meaningless bullet points.
+- Do not turn bullet points into long paragraphs.
+- Make every point informative and relevant.
+- Use simple language appropriate for the audience.
+- Do not add extra bullets just to fill space.
+- Title and conclusion slides may naturally contain fewer points.
+- References slides should contain only relevant references.
+
 DESIGN REQUIREMENTS:
 
 - Follow the selected visual theme consistently.
 - Use the theme's colours, visual mood and design style.
 - Make slide titles clear and visually interesting.
 - Avoid unnecessarily long text.
-- Use concise, useful bullet points.
-- Make the presentation look professionally designed.
+- Keep slides readable and professionally designed.
+- Balance text and images appropriately.
 
-CONTENT REQUIREMENTS:
+PRESENTATION REQUIREMENTS:
 
 - Return exactly {slide_count} slides.
 - Slide 1 must be a strong title or introduction slide.
 - The last slide must be a conclusion or call to action.
 - Include an introduction and logically ordered main content.
 - Every slide needs a short, strong title.
-- Every slide needs 3 to 5 useful bullet points.
-- Keep bullet points short and easy to understand.
+- Follow the selected content length instructions for bullet points.
 - Every slide needs 2 to 4 sentences of speaker notes.
 - Speaker notes must explain the slide in more detail.
 - Add a specific image_query for most slides.
@@ -439,6 +487,7 @@ def _call_ai(
     theme,
     slide_count,
     provider,
+    content_length="medium",
     strict=False
 ):
     """Call the internally selected model through OpenRouter."""
@@ -446,13 +495,19 @@ def _call_ai(
     api_key, base_url, model, timeout = _get_config(provider)
 
     prompt = _build_prompt(
-        topic, audience, tone, theme, slide_count
+        topic,
+        audience,
+        tone,
+        theme,
+        slide_count,
+        content_length,
     )
 
     if strict:
         prompt += (
             f"\n\nIMPORTANT: Return exactly {slide_count} slides. "
-            "Count them before replying. Return valid JSON only."
+            "Count them before replying. Return valid JSON only. "
+            "Follow the selected content length instructions."
         )
 
     headers = {
@@ -566,6 +621,7 @@ def generate_presentation(payload):
                     tone=inputs["tone"],
                     theme=inputs["theme"],
                     slide_count=inputs["slides"],
+                    content_length=inputs["content_length"],
                     provider=provider,
                     strict=(attempt == 1),
                 )
@@ -577,8 +633,6 @@ def generate_presentation(payload):
                 break
 
             except AIConfigError:
-                # A missing or invalid shared API key will not
-                # improve by switching models.
                 raise
 
             except AIResponseError as exc:
@@ -595,6 +649,7 @@ def generate_presentation(payload):
     deck["audience"] = inputs["audience"]
     deck["tone"] = inputs["tone"]
     deck["theme"] = inputs["theme"]
+    deck["content_length"] = inputs["content_length"]
 
     # Do not expose the internal AI provider in the response.
 
