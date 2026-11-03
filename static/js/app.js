@@ -6,6 +6,7 @@
 
   const form = $("createForm");
   const topicInput = $("topic");
+  const authorNameInput = $("authorName");
   const topicCount = $("topicCount");
   const audienceSelect = $("audience");
   const toneSelect = $("tone");
@@ -114,6 +115,7 @@
   function getRequestData() {
     return {
       topic: topicInput.value.trim(),
+      author_name: authorNameInput.value.trim(),
       audience: audienceSelect.value,
       tone: toneSelect.value,
       theme: themeSelect.value,
@@ -204,6 +206,9 @@
       if (!data || !Array.isArray(data.slides) || data.slides.length === 0) {
         throw new Error("The AI returned an empty presentation. Please try again.");
       }
+
+      // Keep the presenter's name with the generated deck.
+      data.author_name = requestData.author_name || "";
 
       currentDeck = data;
       currentIndex = 0;
@@ -319,12 +324,17 @@
 
   function buildSlideHtml(slide, index, total, theme) {
     const layout = slide.layout || "content";
-    const isTitle = index === 0 || layout === "title";
     const hasImage = Boolean(slide.image_url);
     const isFull = layout === "full-image" && hasImage;
 
-    const kicker = isTitle
-      ? "SLIDEWALA"
+    const isFirstSlide = index === 0;
+    const isLastSlide = index === total - 1;
+
+    const authorName = String(currentDeck.author_name || "").trim();
+    const showAuthor = Boolean(authorName) && (isFirstSlide || isLastSlide);
+
+    const kicker = isFirstSlide
+      ? "PRESENTATION"
       : `SLIDE ${String(index + 1).padStart(2, "0")}`;
 
     const bullets = Array.isArray(slide.bullets) ? slide.bullets : [];
@@ -332,6 +342,19 @@
     const bulletsHtml = bullets
       .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
       .join("");
+
+    const authorHtml = showAuthor
+      ? `
+        <div class="slide-author" style="
+          color:${theme.muted};
+          margin-top:20px;
+          font-size:15px;
+          font-weight:600;
+        ">
+          Presented by: ${escapeHtml(authorName)}
+        </div>
+      `
+      : "";
 
     const mediaHtml = hasImage
       ? `
@@ -369,13 +392,15 @@
             ${escapeHtml(slide.title || "Slide " + (index + 1))}
           </h3>
 
+          ${authorHtml}
+
           <ul class="slide-bullets">${bulletsHtml}</ul>
         </div>
 
         ${!isFull ? mediaHtml : ""}
 
         <div class="slide-footer">
-          <span>${escapeHtml(currentDeck.title || "SlideWala")}</span>
+          <span>${escapeHtml(currentDeck.title || "Presentation")}</span>
           <span>${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}</span>
         </div>
       </div>
@@ -411,6 +436,10 @@
     lines.push("# " + (deck.title || "Presentation"));
 
     if (deck.subtitle) lines.push(deck.subtitle);
+
+    if (deck.author_name) {
+      lines.push("Presented by: " + deck.author_name);
+    }
 
     lines.push("");
 
@@ -534,7 +563,7 @@
       await downloadBlob(
         "/api/export/pptx",
         currentDeck,
-        "slidewala-presentation.pptx"
+        "presentation.pptx"
       );
 
       showToast("PowerPoint downloaded.", "success");
@@ -567,7 +596,7 @@
       await downloadBlob(
         "/api/export/pdf",
         currentDeck,
-        "slidewala-presentation.pdf"
+        "presentation.pdf"
       );
 
       showToast("PDF downloaded.", "success");
