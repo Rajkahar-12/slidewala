@@ -1,4 +1,3 @@
-
 """SlideWala AI service with automatic GPT/Claude routing through OpenRouter."""
 
 import json
@@ -28,6 +27,10 @@ ALLOWED_CONTENT_LENGTHS = {
     "short", "medium", "detailed"
 }
 
+ALLOWED_DECK_TYPES = {
+    "lecture", "pitch", "report", "story"
+}
+
 CONTENT_LENGTH_GUIDES = {
     "short": (
         "Write exactly 2 to 3 concise bullet points per slide. "
@@ -46,6 +49,29 @@ CONTENT_LENGTH_GUIDES = {
     ),
 }
 
+DECK_TYPE_GUIDES = {
+    "lecture": (
+        "A classroom lecture. Flow: introduction, learning objectives, "
+        "key concepts one by one, real examples, a comparison or "
+        "timeline where useful, then a recap."
+    ),
+    "pitch": (
+        "A business pitch. Flow: hook, problem, solution, how it works, "
+        "market size (stats), traction or benefits (stats), a comparison "
+        "with alternatives, roadmap (timeline), then a clear call to action."
+    ),
+    "report": (
+        "A report or project presentation. Flow: background, objectives, "
+        "method, findings (stats), analysis, a comparison, "
+        "conclusions and recommendations."
+    ),
+    "story": (
+        "A storytelling presentation. Flow: strong hook, setting, the "
+        "challenge, turning points (timeline), a memorable quote, "
+        "the resolution and the key lesson."
+    ),
+}
+
 THEME_DESCRIPTIONS = {
     "aurora": "soft purple, elegant gradients and light backgrounds",
     "midnight": "premium dark backgrounds with violet accents",
@@ -61,10 +87,14 @@ THEME_DESCRIPTIONS = {
     "cyberpunk": "dark futuristic backgrounds with neon pink accents",
 }
 
+# Layouts that need extra data besides bullets.
+DATA_LAYOUTS = {"stats", "two-column", "timeline", "quote"}
+
 ALLOWED_LAYOUTS = {
     "title", "intro", "content", "image-left",
     "image-right", "full-image", "comparison",
     "conclusion", "references",
+    "section", "stats", "two-column", "timeline", "quote",
 }
 
 DEFAULT_MODELS = {
@@ -144,13 +174,8 @@ def _choose_provider(topic, theme):
         "biology", "research", "algorithm",
     }
 
-    claude_score = sum(
-        1 for word in claude_keywords if word in text
-    )
-
-    gpt_score = sum(
-        1 for word in gpt_keywords if word in text
-    )
+    claude_score = sum(1 for word in claude_keywords if word in text)
+    gpt_score = sum(1 for word in gpt_keywords if word in text)
 
     if theme in {"rose", "lavender", "sand", "sunset"}:
         claude_score += 1
@@ -180,9 +205,7 @@ def _validate_input(payload):
             "Topic is too long. Keep it under 200 characters."
         )
 
-    author_name = str(
-        payload.get("author_name") or ""
-    ).strip()
+    author_name = str(payload.get("author_name") or "").strip()
 
     if len(author_name) > 80:
         raise ValueError(
@@ -198,27 +221,19 @@ def _validate_input(payload):
         allowed = ", ".join(
             str(number) for number in sorted(ALLOWED_SLIDE_COUNTS)
         )
-        raise ValueError(
-            f"Slide count must be one of: {allowed}."
-        )
+        raise ValueError(f"Slide count must be one of: {allowed}.")
 
-    audience = str(
-        payload.get("audience") or "general"
-    ).strip().lower()
+    audience = str(payload.get("audience") or "general").strip().lower()
 
     if audience not in ALLOWED_AUDIENCES:
         raise ValueError("Please choose a valid audience.")
 
-    tone = str(
-        payload.get("tone") or "educational"
-    ).strip().lower()
+    tone = str(payload.get("tone") or "educational").strip().lower()
 
     if tone not in ALLOWED_TONES:
         raise ValueError("Please choose a valid presentation tone.")
 
-    theme = str(
-        payload.get("theme") or "aurora"
-    ).strip().lower()
+    theme = str(payload.get("theme") or "aurora").strip().lower()
 
     if theme not in THEME_DESCRIPTIONS:
         raise ValueError("Please choose a valid design theme.")
@@ -230,6 +245,11 @@ def _validate_input(payload):
     if content_length not in ALLOWED_CONTENT_LENGTHS:
         raise ValueError("Please choose a valid content length.")
 
+    deck_type = str(payload.get("deck_type") or "lecture").strip().lower()
+
+    if deck_type not in ALLOWED_DECK_TYPES:
+        raise ValueError("Please choose a valid presentation type.")
+
     return {
         "topic": topic,
         "author_name": author_name,
@@ -238,6 +258,7 @@ def _validate_input(payload):
         "tone": tone,
         "theme": theme,
         "content_length": content_length,
+        "deck_type": deck_type,
     }
 
 
@@ -248,6 +269,7 @@ def _build_prompt(
     theme,
     slide_count,
     content_length="medium",
+    deck_type="lecture",
 ):
     """Build the presentation-generation prompt."""
 
@@ -256,15 +278,20 @@ def _build_prompt(
     )
 
     content_guide = CONTENT_LENGTH_GUIDES.get(
-        content_length,
-        CONTENT_LENGTH_GUIDES["medium"]
+        content_length, CONTENT_LENGTH_GUIDES["medium"]
     )
+
+    type_guide = DECK_TYPE_GUIDES.get(deck_type, DECK_TYPE_GUIDES["lecture"])
 
     return f"""Create a professional PowerPoint presentation.
 
 Topic: {topic}
 Audience: {audience}
 Tone: {tone}
+Presentation type: {deck_type}
+
+PRESENTATION TYPE GUIDE:
+{type_guide}
 
 Selected visual theme: {theme}
 Visual theme description: {theme_description}
@@ -274,13 +301,13 @@ Exact number of slides: {slide_count}
 Selected content length: {content_length}
 
 CONTENT LENGTH INSTRUCTIONS:
-
 {content_guide}
 
 IMPORTANT:
 - Follow the selected content length consistently.
 - Do not use extremely short or meaningless bullet points.
 - Do not turn bullet points into long paragraphs.
+- Keep every bullet under 20 words.
 - Make every point informative and relevant.
 - Use simple language appropriate for the audience.
 - Do not add extra bullets just to fill space.
@@ -290,7 +317,6 @@ IMPORTANT:
 DESIGN REQUIREMENTS:
 
 - Follow the selected visual theme consistently.
-- Use the theme's colours, visual mood and design style.
 - Make slide titles clear and visually interesting.
 - Avoid unnecessarily long text.
 - Keep slides readable and professionally designed.
@@ -304,20 +330,41 @@ PRESENTATION REQUIREMENTS:
 - The last slide must have a conclusion layout.
 - Include an introduction and logically ordered main content.
 - Every other slide needs a short, strong title.
-- Follow the selected content length instructions for bullet points.
 - Every slide needs 2 to 4 sentences of speaker notes.
 - Speaker notes must explain the slide in more detail.
 - Add a specific image_query for most slides.
 - Use descriptive image search phrases, not generic words.
-- For references slides, image_query must be empty.
-- Use only these layouts:
-  title, intro, content, image-left, image-right,
-  full-image, comparison, conclusion, references.
+- For references, stats, timeline and quote slides, image_query may be empty.
 - Do not repeat information across slides.
 - Do not add filler content.
-- Make the presentation informative and engaging.
 - Do not add SlideWala branding, logos, promotional text or watermarks.
 - Do not invent or include a presenter name.
+
+LAYOUT RULES (this makes the deck look varied and professional):
+
+- Allowed layouts: title, intro, content, image-left, image-right,
+  full-image, comparison, conclusion, references,
+  section, stats, two-column, timeline, quote.
+- Do not use the same layout more than twice in a row.
+- Alternate image-left and image-right for image slides.
+- Use at least 3 different layouts in the deck (more for 8+ slides).
+- "stats": only for real, believable figures. Add
+  "stats": [{{"value": "72%", "label": "short label"}}] with 2 to 4 items.
+  Do not invent exact statistics you are unsure about; prefer
+  well-known figures or clearly rounded numbers.
+- "two-column": add
+  "columns": [{{"heading": "A", "bullets": ["..."]}},
+  {{"heading": "B", "bullets": ["..."]}}] with exactly 2 columns and
+  2 to 3 bullets each. Use it for comparisons, pros and cons, before and after.
+- "timeline": add "steps": [{{"label": "Step name", "text": "one short line"}}]
+  with 3 to 5 items. Use it for processes, history or roadmaps.
+- "quote": add "quote": "a short real or well-known quote" and
+  "quote_author": "Name". Use at most one quote slide, and only if the
+  quote is genuine. Otherwise use another layout.
+- "section": a divider slide with a one-line subtitle in bullets.
+  Use it only for decks of 10 or more slides.
+- Slides using these layouts must still include bullets (1 to 3 short
+  summary points) and speaker notes.
 
 Return ONLY valid JSON in this exact structure.
 Do not include Markdown or explanations outside the JSON.
@@ -329,13 +376,14 @@ Do not include Markdown or explanations outside the JSON.
         {{
             "layout": "title",
             "title": "Slide title",
-            "bullets": [
-                "Point 1",
-                "Point 2",
-                "Point 3"
-            ],
+            "bullets": ["Point 1", "Point 2"],
             "speaker_notes": "Detailed speaker explanation.",
-            "image_query": "specific image search phrase"
+            "image_query": "specific image search phrase",
+            "stats": [],
+            "columns": [],
+            "steps": [],
+            "quote": "",
+            "quote_author": ""
         }}
     ]
 }}
@@ -376,16 +424,99 @@ def _extract_json(text):
     )
 
 
+def _clean_text(value, limit):
+    """Return a trimmed string limited to a maximum length."""
+
+    return str(value or "").strip()[:limit]
+
+
+def _clean_bullets(value, limit=6, max_len=300):
+    """Return a clean list of bullet strings."""
+
+    if not isinstance(value, list):
+        value = [value] if value else []
+
+    result = []
+
+    for item in value:
+        text = _clean_text(item, max_len)
+        if text:
+            result.append(text)
+
+    return result[:limit]
+
+
+def _clean_extras(raw):
+    """Clean the extra data used by stats, columns, timeline and quote."""
+
+    stats = []
+
+    for item in (raw.get("stats") or [])[:4] if isinstance(
+        raw.get("stats"), list
+    ) else []:
+        if isinstance(item, dict):
+            value = _clean_text(item.get("value"), 20)
+            label = _clean_text(item.get("label"), 60)
+            if value and label:
+                stats.append({"value": value, "label": label})
+
+    columns = []
+
+    for item in (raw.get("columns") or [])[:2] if isinstance(
+        raw.get("columns"), list
+    ) else []:
+        if isinstance(item, dict):
+            heading = _clean_text(item.get("heading"), 60)
+            bullets = _clean_bullets(item.get("bullets"), limit=4, max_len=140)
+            if heading and bullets:
+                columns.append({"heading": heading, "bullets": bullets})
+
+    steps = []
+
+    for item in (raw.get("steps") or [])[:5] if isinstance(
+        raw.get("steps"), list
+    ) else []:
+        if isinstance(item, dict):
+            label = _clean_text(item.get("label"), 40)
+            text = _clean_text(item.get("text"), 110)
+            if label and text:
+                steps.append({"label": label, "text": text})
+
+    return {
+        "stats": stats,
+        "columns": columns,
+        "steps": steps,
+        "quote": _clean_text(raw.get("quote"), 260),
+        "quote_author": _clean_text(raw.get("quote_author"), 80),
+    }
+
+
+def _has_layout_data(layout, extras):
+    """Check that a data layout really has the data it needs."""
+
+    if layout == "stats":
+        return len(extras["stats"]) >= 2
+
+    if layout == "two-column":
+        return len(extras["columns"]) == 2
+
+    if layout == "timeline":
+        return len(extras["steps"]) >= 3
+
+    if layout == "quote":
+        return bool(extras["quote"])
+
+    return True
+
+
 def _validate_output(data, expected_slides):
     """Validate and clean generated presentation content."""
 
     if not isinstance(data, dict):
-        raise AIResponseError(
-            "The AI response was not a JSON object."
-        )
+        raise AIResponseError("The AI response was not a JSON object.")
 
-    title = str(data.get("title") or "").strip()[:160]
-    subtitle = str(data.get("subtitle") or "").strip()[:240]
+    title = _clean_text(data.get("title"), 160)
+    subtitle = _clean_text(data.get("subtitle"), 240)
     raw_slides = data.get("slides")
 
     if not title:
@@ -394,9 +525,7 @@ def _validate_output(data, expected_slides):
         )
 
     if not isinstance(raw_slides, list) or not raw_slides:
-        raise AIResponseError(
-            "The AI response is missing slides."
-        )
+        raise AIResponseError("The AI response is missing slides.")
 
     if len(raw_slides) != expected_slides:
         raise AIResponseError(
@@ -410,55 +539,62 @@ def _validate_output(data, expected_slides):
         if not isinstance(raw, dict):
             continue
 
-        slide_title = str(
-            raw.get("title") or f"Slide {index}"
-        ).strip()[:160]
+        slide_title = _clean_text(raw.get("title") or f"Slide {index}", 160)
+        bullets = _clean_bullets(raw.get("bullets"))
 
-        bullets_raw = raw.get("bullets") or []
-
-        if not isinstance(bullets_raw, list):
-            bullets_raw = [str(bullets_raw)]
-
-        bullets = []
-
-        for bullet in bullets_raw:
-            bullet_text = str(bullet).strip()[:300]
-            if bullet_text:
-                bullets.append(bullet_text)
-
-        if len(bullets) < 2:
-            bullets.append("Key takeaway for this slide.")
-
-        notes = str(
-            raw.get("speaker_notes") or ""
-        ).strip()[:2400]
-
-        if not notes:
-            notes = "No speaker notes were generated for this slide."
-
-        layout = str(
-            raw.get("layout") or "content"
-        ).strip().lower()
+        layout = _clean_text(raw.get("layout") or "content", 30).lower()
 
         if layout not in ALLOWED_LAYOUTS:
             layout = "content"
 
-        image_query = str(
-            raw.get("image_query") or ""
-        ).strip()[:120]
+        extras = _clean_extras(raw)
 
-        slides.append({
+        # Fall back to a normal slide if the data layout is incomplete.
+        if layout in DATA_LAYOUTS and not _has_layout_data(layout, extras):
+            layout = "content"
+
+        if len(bullets) < 2 and layout not in DATA_LAYOUTS | {"section"}:
+            bullets.append("Key takeaway for this slide.")
+
+        notes = _clean_text(raw.get("speaker_notes"), 2400)
+
+        if not notes:
+            notes = "No speaker notes were generated for this slide."
+
+        slide = {
             "layout": layout,
             "title": slide_title or f"Slide {index}",
-            "bullets": bullets[:6],
+            "bullets": bullets,
             "speaker_notes": notes,
-            "image_query": image_query,
-        })
+            "image_query": _clean_text(raw.get("image_query"), 120),
+        }
+
+        # Only keep the extra data that the layout actually uses.
+        if layout == "stats":
+            slide["stats"] = extras["stats"]
+        elif layout == "two-column":
+            slide["columns"] = extras["columns"]
+        elif layout == "timeline":
+            slide["steps"] = extras["steps"]
+        elif layout == "quote":
+            slide["quote"] = extras["quote"]
+            slide["quote_author"] = extras["quote_author"]
+
+        # These layouts do not show a picture.
+        if layout in DATA_LAYOUTS | {"section", "references"}:
+            slide["image_query"] = ""
+
+        slides.append(slide)
 
     if len(slides) != expected_slides:
         raise AIResponseError(
             f"Only {len(slides)} valid slide(s) were produced."
         )
+
+    # First and last slides are always plain title / thank-you slides.
+    for position in (0, -1):
+        for key in ("stats", "columns", "steps", "quote", "quote_author"):
+            slides[position].pop(key, None)
 
     slides[0]["layout"] = "title"
     slides[-1]["layout"] = "conclusion"
@@ -506,6 +642,7 @@ def _call_ai(
     slide_count,
     provider,
     content_length="medium",
+    deck_type="lecture",
     strict=False
 ):
     """Call the internally selected model through OpenRouter."""
@@ -519,6 +656,7 @@ def _call_ai(
         theme,
         slide_count,
         content_length,
+        deck_type,
     )
 
     if strict:
@@ -526,7 +664,9 @@ def _call_ai(
             f"\n\nIMPORTANT: Return exactly {slide_count} slides. "
             'The final slide title must be exactly "Thank You". '
             "Count the slides before replying. Return valid JSON only. "
-            "Follow the selected content length instructions."
+            "Follow the selected content length instructions. "
+            "Every stats, two-column, timeline or quote slide must "
+            "include its required data fields."
         )
 
     headers = {
@@ -656,14 +796,12 @@ def generate_presentation(payload):
                 theme=inputs["theme"],
                 slide_count=inputs["slides"],
                 content_length=inputs["content_length"],
+                deck_type=inputs["deck_type"],
                 provider=provider,
                 strict=strict,
             )
 
-            deck = _validate_output(
-                raw,
-                inputs["slides"]
-            )
+            deck = _validate_output(raw, inputs["slides"])
 
             logger.info(
                 "SlideWala AI attempt %s (%s) completed in %.2f seconds.",
@@ -703,6 +841,7 @@ def generate_presentation(payload):
     deck["tone"] = inputs["tone"]
     deck["theme"] = inputs["theme"]
     deck["content_length"] = inputs["content_length"]
+    deck["deck_type"] = inputs["deck_type"]
 
     # Image enrichment is measured separately so Render logs
     # can show whether image searches are slowing generation.
