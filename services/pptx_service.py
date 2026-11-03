@@ -330,7 +330,9 @@ def _add_picture_fit(
         return None
 
 
-def _title_slide(slide, data, theme):
+def _title_slide(slide, data, theme, author_name=""):
+    """Build the opening slide without product branding."""
+
     _set_background(slide, theme["bg"])
 
     _add_accent_line(
@@ -368,14 +370,71 @@ def _title_slide(slide, data, theme):
             theme["muted"],
         )
 
+    if author_name:
+        _add_text(
+            slide,
+            f"Presented by: {author_name}",
+            Inches(0.9),
+            Inches(5.35),
+            Inches(10.5),
+            Inches(0.55),
+            17,
+            theme["text"],
+            bold=True,
+        )
+
+
+def _thank_you_slide(
+    slide,
+    theme,
+    author_name="",
+    slide_no=1,
+    total=1,
+):
+    """Build a clean closing slide with the presenter's name."""
+
+    _set_background(slide, theme["bg"])
+
+    _add_accent_line(
+        slide,
+        Inches(5.95),
+        Inches(2.25),
+        Inches(1.4),
+        Inches(0.08),
+        theme["accent"],
+    )
+
     _add_text(
         slide,
-        "SLIDEWALA  \u00b7  AI PRESENTATION",
-        Inches(0.9),
-        Inches(6.7),
-        Inches(6.0),
-        Inches(0.3),
-        9,
+        "Thank You",
+        Inches(1.0),
+        Inches(2.65),
+        Inches(11.3),
+        Inches(1.2),
+        42,
+        theme["title"],
+        bold=True,
+        align=PP_ALIGN.CENTER,
+        anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+    if author_name:
+        _add_text(
+            slide,
+            f"Presented by: {author_name}",
+            Inches(2.0),
+            Inches(4.15),
+            Inches(9.3),
+            Inches(0.6),
+            18,
+            theme["text"],
+            align=PP_ALIGN.CENTER,
+        )
+
+    _add_slide_number(
+        slide,
+        slide_no,
+        total,
         theme["muted"],
     )
 
@@ -587,6 +646,10 @@ def build_pptx(payload: dict):
     if len(slides) > 20:
         raise ValueError("Too many slides to export.")
 
+    author_name = str(
+        payload.get("author_name") or ""
+    ).strip()[:80]
+
     theme_name = str(
         payload.get("theme") or "aurora"
     ).strip().lower()
@@ -606,6 +669,7 @@ def build_pptx(payload: dict):
     presentation.slide_height = SLIDE_H
 
     blank_layout = presentation.slide_layouts[6]
+    total_slides = len(slides)
 
     for index, slide_data in enumerate(slides):
         if not isinstance(slide_data, dict):
@@ -614,35 +678,48 @@ def build_pptx(payload: dict):
         slide = presentation.slides.add_slide(blank_layout)
 
         slide_no = index + 1
-        layout = str(
-            slide_data.get("layout") or "content"
-        ).lower()
 
-        image_bytes = image_results.get(index)
+        # Always create a dedicated closing slide.
+        if slide_no == total_slides:
+            _thank_you_slide(
+                slide,
+                theme,
+                author_name,
+                slide_no,
+                total_slides,
+            )
 
-        if slide_no == 1 or layout == "title":
+        elif slide_no == 1:
             _title_slide(
                 slide,
                 slide_data,
                 theme,
-            )
-
-        elif layout == "references":
-            _references_slide(
-                slide,
-                slide_data,
-                theme,
+                author_name,
             )
 
         else:
-            _content_slide(
-                slide,
-                slide_data,
-                theme,
-                image_bytes,
-                slide_no,
-                len(slides),
-            )
+            layout = str(
+                slide_data.get("layout") or "content"
+            ).lower()
+
+            image_bytes = image_results.get(index)
+
+            if layout == "references":
+                _references_slide(
+                    slide,
+                    slide_data,
+                    theme,
+                )
+
+            else:
+                _content_slide(
+                    slide,
+                    slide_data,
+                    theme,
+                    image_bytes,
+                    slide_no,
+                    total_slides,
+                )
 
         notes = str(
             slide_data.get("speaker_notes") or ""
