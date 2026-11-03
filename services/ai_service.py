@@ -2,12 +2,17 @@
 """SlideWala AI service with automatic GPT/Claude routing through OpenRouter."""
 
 import json
+import logging
 import os
 import re
+import time
+
 import requests
 
 from services.image_service import enrich_slides_with_images
 
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_SLIDE_COUNTS = {5, 8, 10, 12}
 
@@ -118,11 +123,7 @@ def _get_config(provider):
 
 
 def _choose_provider(topic, theme):
-    """
-    Select an AI internally using topic and visual theme.
-
-    This selection is never shown to the user.
-    """
+    """Select an AI internally using topic and visual theme."""
 
     text = f"{topic} {theme}".lower()
 
@@ -459,10 +460,7 @@ def _validate_output(data, expected_slides):
             f"Only {len(slides)} valid slide(s) were produced."
         )
 
-    # Keep the opening slide in title layout.
     slides[0]["layout"] = "title"
-
-    # Always make the final slide a clean Thank You slide.
     slides[-1]["layout"] = "conclusion"
     slides[-1]["title"] = "Thank You"
 
@@ -568,6 +566,8 @@ def _call_ai(
             timeout=timeout,
         )
 
+        # Retry the same request only if the provider does not
+        # support OpenRouter's JSON response format.
         if (
             response.status_code == 400
             and "response_format" in (response.text or "")
@@ -617,7 +617,9 @@ def _call_ai(
 
 
 def generate_presentation(payload):
-    """Choose a model, generate a deck and optionally enrich its images."""
+    """Generate a deck with automatic model fallback and image enrichment."""
+
+    total_start = time.perf_counter()
 
     inputs = _validate_input(payload)
 
@@ -630,40 +632,68 @@ def generate_presentation(payload):
         "claude" if preferred_provider == "chatgpt" else "chatgpt"
     )
 
-    providers = [preferred_provider, other_provider]
+    # Maximum of two generation attempts:
+    # 1. Automatically selected model.
+    # 2. Backup model with stricter JSON instructions.
+    providers = [
+        (preferred_provider, False),
+        (other_provider, True),
+    ]
+
     last_error = None
     deck = None
 
-    for provider in providers:
-        for attempt in range(2):
-            try:
-                raw = _call_ai(
-                    topic=inputs["topic"],
-                    audience=inputs["audience"],
-                    tone=inputs["tone"],
-                    theme=inputs["theme"],
-                    slide_count=inputs["slides"],
-                    content_length=inputs["content_length"],
-                    provider=provider,
-                    strict=(attempt == 1),
-                )
+    for attempt_number, (provider, strict) in enumerate(
+        providers, start=1
+    ):
+        attempt_start = time.perf_counter()
 
-                deck = _validate_output(
-                    raw,
-                    inputs["slides"]
-                )
-                break
+        try:
+            raw = _call_ai(
+                topic=inputs["topic"],
+                audience=inputs["audience"],
+                tone=inputs["tone"],
+                theme=inputs["theme"],
+                slide_count=inputs["slides"],
+                content_length=inputs["content_length"],
+                provider=provider,
+                strict=strict,
+            )
 
-            except AIConfigError:
-                raise
+            deck = _validate_output(
+                raw,
+                inputs["slides"]
+            )
 
-            except AIResponseError as exc:
-                last_error = exc
+            logger.info(
+                "SlideWala AI attempt %s (%s) completed in %.2f seconds.",
+                attempt_number,
+                provider,
+                time.perf_counter() - attempt_start,
+            )
 
-        if deck is not None:
             break
 
+        except AIConfigError:
+            raise
+
+        except AIResponseError as exc:
+            last_error = exc
+
+            logger.warning(
+                "SlideWala AI attempt %s (%s) failed after %.2f seconds: %s",
+                attempt_number,
+                provider,
+                time.perf_counter() - attempt_start,
+                str(exc),
+            )
+
     if deck is None:
+        logger.error(
+            "SlideWala generation failed after %.2f seconds.",
+            time.perf_counter() - total_start,
+        )
+
         raise last_error or AIResponseError(
             "Both AI models were unable to generate a presentation."
         )
@@ -674,15 +704,33 @@ def generate_presentation(payload):
     deck["theme"] = inputs["theme"]
     deck["content_length"] = inputs["content_length"]
 
-    # Do not expose the internal AI provider in the response.
-
+    # Image enrichment is measured separately so Render logs
+    # can show whether image searches are slowing generation.
     if os.getenv(
         "ENABLE_WIKIMEDIA_IMAGES", "true"
     ).lower() in ("true", "1", "yes", "on"):
 
+        image_start = time.perf_counter()
+
         try:
             enrich_slides_with_images(deck["slides"])
+
+            logger.info(
+                "SlideWala image enrichment completed in %.2f seconds.",
+                time.perf_counter() - image_start,
+            )
+
         except Exception:
-            pass
+            logger.exception(
+                "SlideWala image enrichment failed; continuing without images."
+            )
+
+    else:
+        logger.info("SlideWala image enrichment is disabled.")
+
+    logger.info(
+        "SlideWala total generation time: %.2f seconds.",
+        time.perf_counter() - total_start,
+    )
 
     return deck
