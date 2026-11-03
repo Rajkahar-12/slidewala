@@ -1,10 +1,11 @@
 
+
 import os
 import requests
 
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import urlparse
 
 
 USER_AGENT = os.getenv(
@@ -12,9 +13,7 @@ USER_AGENT = os.getenv(
     "SlideWala/1.0 (presentation generator)"
 )
 
-HEADERS = {
-    "User-Agent": USER_AGENT
-}
+HEADERS = {"User-Agent": USER_AGENT}
 
 ALLOWED_HOSTS = (
     "upload.wikimedia.org",
@@ -26,7 +25,7 @@ def is_valid_wikimedia_url(url):
     """Allow images only from Wikimedia domains."""
     try:
         host = urlparse(url).hostname
-        return host and any(
+        return bool(host) and any(
             host == allowed or host.endswith("." + allowed)
             for allowed in ALLOWED_HOSTS
         )
@@ -44,7 +43,7 @@ def _fetch_image_cached(url):
         with requests.get(
             url,
             headers=HEADERS,
-            timeout=8,
+            timeout=12,
             stream=True
         ) as response:
 
@@ -74,11 +73,7 @@ def fetch_image_bytes(url):
         return None
 
     result = _fetch_image_cached(url)
-
-    if result:
-        return result[0]
-
-    return None
+    return result[0] if result else None
 
 
 def proxy_image(url):
@@ -86,12 +81,7 @@ def proxy_image(url):
     if not url:
         return None
 
-    result = _fetch_image_cached(url)
-
-    if result:
-        return result
-
-    return None
+    return _fetch_image_cached(url)
 
 
 @lru_cache(maxsize=256)
@@ -119,22 +109,22 @@ def search_wikimedia(query, limit=6):
             api_url,
             params=params,
             headers=HEADERS,
-            timeout=6
+            timeout=12
         ) as response:
 
             response.raise_for_status()
             payload = response.json()
 
         pages = payload.get("query", {}).get("pages", {})
-
         results = []
 
         for page in pages.values():
             image_info = page.get("imageinfo", [{}])[0]
 
-            image_url = image_info.get("thumburl")
-            if not image_url:
-                image_url = image_info.get("url")
+            image_url = (
+                image_info.get("thumburl")
+                or image_info.get("url")
+            )
 
             if not image_url or not is_valid_wikimedia_url(image_url):
                 continue
@@ -154,50 +144,70 @@ def search_wikimedia(query, limit=6):
 
         return results
 
-    except (requests.RequestException, ValueError, KeyError):
+    except (
+        requests.RequestException,
+        ValueError,
+        KeyError,
+        TypeError
+    ):
         return []
 
 
 def _get_image_for_slide(slide):
-    """Find an optional Wikimedia image for one slide."""
-    title = slide.get("title", "")
-    bullets = slide.get("bullets", [])
+    """Find a relevant Wikimedia image for one slide."""
 
-    query = " ".join(
-        [title] + [str(item) for item in bullets[:2]]
-    ).strip()
+    # Prefer the AI-generated image search phrase.
+    query = str(slide.get("image_query") or "").strip()
+
+    # Fall back to the slide title and first bullet.
+    if not query:
+        title = str(slide.get("title") or "")
+        bullets = slide.get("bullets", [])
+
+        first_bullet = (
+            str(bullets[0]) if bullets else ""
+        )
+
+        query = f"{title} {first_bullet}".strip()
 
     if not query:
         return slide
 
-    images = search_wikimedia(query)
+    images = search_wikimedia(query, limit=6)
 
     if not images:
         return slide
 
     selected = images[0]
+    image_url = selected["url"]
 
-    slide["image_source_url"] = selected["url"]
+    # JavaScript preview expects image_url.
+    # PPTX and PDF services can continue using image_source_url.
+    slide["image_url"] = image_url
+    slide["image_source_url"] = image_url
     slide["image_source"] = "wikimedia"
     slide["image_license"] = selected.get("license", "")
     slide["image_title"] = selected.get("title", "")
+    slide["image_alt"] = query
 
     return slide
 
 
 def enrich_slides_with_images(slides):
-    """
-    Add optional Wikimedia images to slides.
-    If Wikimedia is unavailable, presentation generation continues.
-    """
+    """Add relevant Wikimedia images to presentation slides."""
+
     if not isinstance(slides, list):
         return slides
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    valid_slides = [
+        slide for slide in slides
+        if isinstance(slide, dict)
+    ]
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
             executor.submit(_get_image_for_slide, slide)
-            for slide in slides
-            if isinstance(slide, dict)
+            for slide in valid_slides
         ]
 
         for future in as_completed(futures):
