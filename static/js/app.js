@@ -1,4 +1,3 @@
-
 (() => {
   "use strict";
 
@@ -10,6 +9,7 @@
   const topicCount = $("topicCount");
   const audienceSelect = $("audience");
   const toneSelect = $("tone");
+  const deckTypeSelect = $("deckType");
   const themeSelect = $("theme");
   const slideCountGroup = $("slideCount");
   const contentLengthGroup = $("contentLength");
@@ -118,6 +118,7 @@
       author_name: authorNameInput.value.trim(),
       audience: audienceSelect.value,
       tone: toneSelect.value,
+      deck_type: deckTypeSelect.value,
       theme: themeSelect.value,
       slides: selectedSlideCount,
       content_length: selectedContentLength
@@ -209,6 +210,9 @@
 
       // Keep the presenter's name with the generated deck.
       data.author_name = requestData.author_name || "";
+
+      // If the server does not send the theme back, keep the chosen one.
+      data.theme = data.theme || requestData.theme;
 
       currentDeck = data;
       currentIndex = 0;
@@ -343,6 +347,12 @@
       .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
       .join("");
 
+    // Extra slide types (quote, stats, two-column, timeline, section).
+    // Returns null when the slide has no data for its layout.
+    const special = window.SlideLayouts
+      ? window.SlideLayouts.render(slide, theme)
+      : null;
+
     const authorHtml = showAuthor
       ? `
         <div class="slide-author" style="
@@ -394,7 +404,7 @@
 
           ${authorHtml}
 
-          <ul class="slide-bullets">${bulletsHtml}</ul>
+          ${special || `<ul class="slide-bullets">${bulletsHtml}</ul>`}
         </div>
 
         ${!isFull ? mediaHtml : ""}
@@ -414,6 +424,9 @@
 
   document.addEventListener("keydown", (event) => {
     if (!currentDeck || isBusy) return;
+
+    // Do not change slides while the person is typing in a form field.
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
 
     if (event.key === "ArrowLeft") renderSlide(currentIndex - 1);
     if (event.key === "ArrowRight") renderSlide(currentIndex + 1);
