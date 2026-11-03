@@ -27,21 +27,19 @@ app.config["SECRET_KEY"] = os.getenv(
 )
 
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
-
-# Cache static assets for a short period.
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 
 
 def safe_filename(title):
-    """Create a safe filename from the presentation title."""
+    """Create a clean filename from the presentation title."""
 
-    title = str(title or "slidewala-presentation")
+    title = str(title or "presentation")
 
     name = re.sub(r"[^a-zA-Z0-9 _-]", "", title)
     name = re.sub(r"\s+", "-", name.strip())
     name = name[:60].strip("-")
 
-    return (name or "slidewala-presentation").lower()
+    return (name or "presentation").lower()
 
 
 @app.route("/")
