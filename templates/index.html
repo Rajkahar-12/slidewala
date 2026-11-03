@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -111,6 +110,17 @@
                 <option value="persuasive">Persuasive</option>
                 <option value="casual">Casual</option>
                 <option value="inspiring">Inspiring</option>
+              </select>
+            </div>
+
+            <!-- Presentation type -->
+            <div class="field">
+              <label for="deckType">Presentation type</label>
+              <select id="deckType" name="deck_type">
+                <option value="lecture" selected>Lecture / class</option>
+                <option value="pitch">Pitch / business</option>
+                <option value="report">Report / project</option>
+                <option value="story">Storytelling</option>
               </select>
             </div>
           </div>
@@ -234,6 +244,7 @@
     </div>
   </div>
 
+  <script src="{{ url_for('static', filename='js/layouts.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>
