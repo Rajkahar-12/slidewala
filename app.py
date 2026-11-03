@@ -1,10 +1,11 @@
-
 """SlideWala - optimized Flask application."""
 
 import io
 import os
 import re
 import sys
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,6 +29,33 @@ app.config["SECRET_KEY"] = os.getenv(
 
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
+
+
+# Simple in-memory rate limit for AI generation (protects your API key).
+# Change these two numbers if you want more or fewer presentations.
+RATE_LIMIT_COUNT = int(os.getenv("RATE_LIMIT_COUNT", 10))
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", 3600))  # seconds
+
+_request_log = defaultdict(deque)
+
+
+def too_many_requests():
+    """Return True if this visitor made too many generate requests."""
+
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    ip = (forwarded.split(",")[0].strip() or request.remote_addr or "unknown")
+
+    now = time.time()
+    hits = _request_log[ip]
+
+    while hits and now - hits[0] > RATE_LIMIT_WINDOW:
+        hits.popleft()
+
+    if len(hits) >= RATE_LIMIT_COUNT:
+        return True
+
+    hits.append(now)
+    return False
 
 
 def safe_filename(title):
@@ -75,6 +103,11 @@ def api_generate():
         return jsonify(
             error="Invalid request. Please try again."
         ), 400
+
+    if too_many_requests():
+        return jsonify(
+            error="Too many presentations created. Please try again later."
+        ), 429
 
     try:
         deck = generate_presentation(payload)
