@@ -1,5 +1,4 @@
 
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -77,6 +76,22 @@
             <span class="field-hint"><span id="topicCount">0</span>/200</span>
           </div>
 
+          <!-- Presenter name -->
+          <div class="field">
+            <label for="authorName">Your name (optional)</label>
+            <input
+              type="text"
+              id="authorName"
+              name="author_name"
+              maxlength="80"
+              placeholder="e.g. Your Name"
+              autocomplete="name"
+            >
+            <span class="field-hint">
+              Your name will appear on the first and Thank You slides.
+            </span>
+          </div>
+
           <div class="field-grid">
             <div class="field">
               <label for="audience">Audience</label>
@@ -110,7 +125,7 @@
             </div>
           </div>
 
-          <!-- NEW: Content length selection -->
+          <!-- Content length selection -->
           <div class="field">
             <label>Content length</label>
             <div class="segmented" id="contentLength" role="radiogroup" aria-label="Content length">
