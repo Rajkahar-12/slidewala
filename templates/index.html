@@ -1,4 +1,5 @@
 
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -107,6 +108,25 @@
               <button type="button" data-count="10" class="active">10</button>
               <button type="button" data-count="12">12</button>
             </div>
+          </div>
+
+          <!-- NEW: Content length selection -->
+          <div class="field">
+            <label>Content length</label>
+            <div class="segmented" id="contentLength" role="radiogroup" aria-label="Content length">
+              <button type="button" data-length="short" aria-pressed="false">
+                Short
+              </button>
+              <button type="button" data-length="medium" class="active" aria-pressed="true">
+                Medium
+              </button>
+              <button type="button" data-length="detailed" aria-pressed="false">
+                Detailed
+              </button>
+            </div>
+            <span class="field-hint">
+              Choose how much information each slide should contain.
+            </span>
           </div>
 
           <div class="field">
