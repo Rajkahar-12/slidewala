@@ -179,6 +179,15 @@ def _validate_input(payload):
             "Topic is too long. Keep it under 200 characters."
         )
 
+    author_name = str(
+        payload.get("author_name") or ""
+    ).strip()
+
+    if len(author_name) > 80:
+        raise ValueError(
+            "Your name is too long. Keep it under 80 characters."
+        )
+
     try:
         slide_count = int(payload.get("slides"))
     except (TypeError, ValueError):
@@ -222,6 +231,7 @@ def _validate_input(payload):
 
     return {
         "topic": topic,
+        "author_name": author_name,
         "slides": slide_count,
         "audience": audience,
         "tone": tone,
@@ -288,10 +298,11 @@ DESIGN REQUIREMENTS:
 PRESENTATION REQUIREMENTS:
 
 - Return exactly {slide_count} slides.
-- Slide 1 must be a strong title or introduction slide.
-- The last slide must be a conclusion or call to action.
+- Slide 1 must be a strong title slide about the topic.
+- The last slide title must be exactly "Thank You".
+- The last slide must have a conclusion layout.
 - Include an introduction and logically ordered main content.
-- Every slide needs a short, strong title.
+- Every other slide needs a short, strong title.
 - Follow the selected content length instructions for bullet points.
 - Every slide needs 2 to 4 sentences of speaker notes.
 - Speaker notes must explain the slide in more detail.
@@ -304,6 +315,8 @@ PRESENTATION REQUIREMENTS:
 - Do not repeat information across slides.
 - Do not add filler content.
 - Make the presentation informative and engaging.
+- Do not add SlideWala branding, logos, promotional text or watermarks.
+- Do not invent or include a presenter name.
 
 Return ONLY valid JSON in this exact structure.
 Do not include Markdown or explanations outside the JSON.
@@ -446,6 +459,13 @@ def _validate_output(data, expected_slides):
             f"Only {len(slides)} valid slide(s) were produced."
         )
 
+    # Keep the opening slide in title layout.
+    slides[0]["layout"] = "title"
+
+    # Always make the final slide a clean Thank You slide.
+    slides[-1]["layout"] = "conclusion"
+    slides[-1]["title"] = "Thank You"
+
     return {
         "title": title,
         "subtitle": subtitle,
@@ -506,7 +526,8 @@ def _call_ai(
     if strict:
         prompt += (
             f"\n\nIMPORTANT: Return exactly {slide_count} slides. "
-            "Count them before replying. Return valid JSON only. "
+            'The final slide title must be exactly "Thank You". '
+            "Count the slides before replying. Return valid JSON only. "
             "Follow the selected content length instructions."
         )
 
@@ -526,7 +547,8 @@ def _call_ai(
             {
                 "role": "system",
                 "content": (
-                    "You are SlideWala, an expert presentation designer. "
+                    "You are an expert presentation designer. "
+                    "Create clean, professional presentations. "
                     "Return one valid JSON object and nothing else."
                 ),
             },
@@ -646,6 +668,7 @@ def generate_presentation(payload):
             "Both AI models were unable to generate a presentation."
         )
 
+    deck["author_name"] = inputs["author_name"]
     deck["audience"] = inputs["audience"]
     deck["tone"] = inputs["tone"]
     deck["theme"] = inputs["theme"]
