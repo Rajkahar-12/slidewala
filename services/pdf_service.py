@@ -1,10 +1,9 @@
-
 """Real PDF generation with ReportLab, one presentation slide per page."""
 
 import io
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests
 from PIL import Image
 from reportlab.lib.colors import Color
 from reportlab.lib.utils import ImageReader, simpleSplit
@@ -12,59 +11,37 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
+from services.image_service import fetch_image_bytes
+
 PAGE_W = 13.333 * 72
 PAGE_H = 7.5 * 72
+MARGIN = 65
+CONTENT_W = PAGE_W - 2 * MARGIN
+
+
+def _theme(bg, title, text, accent, muted, card):
+    return {
+        "bg": bg, "title": title, "text": text,
+        "accent": accent, "muted": muted, "card": card,
+    }
+
 
 THEMES = {
-    "aurora": {
-        "bg": (248, 246, 255), "title": (24, 20, 44), "text": (55, 50, 80),
-        "accent": (108, 76, 241), "muted": (120, 115, 140), "card": (255, 255, 255),
-    },
-    "midnight": {
-        "bg": (15, 17, 32), "title": (255, 255, 255), "text": (225, 228, 242),
-        "accent": (139, 120, 255), "muted": (160, 166, 195), "card": (27, 30, 50),
-    },
-    "minimal": {
-        "bg": (255, 255, 255), "title": (17, 17, 17), "text": (55, 55, 55),
-        "accent": (17, 17, 17), "muted": (130, 130, 130), "card": (245, 245, 245),
-    },
-    "corporate": {
-        "bg": (245, 248, 252), "title": (16, 40, 70), "text": (45, 65, 90),
-        "accent": (0, 112, 192), "muted": (110, 125, 145), "card": (255, 255, 255),
-    },
-    "ocean": {
-        "bg": (234, 246, 248), "title": (7, 59, 76), "text": (36, 85, 99),
-        "accent": (0, 166, 166), "muted": (102, 139, 150), "card": (255, 255, 255),
-    },
-    "sunset": {
-        "bg": (255, 241, 233), "title": (84, 37, 26), "text": (112, 67, 52),
-        "accent": (242, 107, 56), "muted": (167, 122, 105), "card": (255, 250, 246),
-    },
-    "forest": {
-        "bg": (237, 244, 236), "title": (23, 59, 44), "text": (54, 92, 71),
-        "accent": (50, 134, 90), "muted": (120, 145, 125), "card": (255, 255, 255),
-    },
-    "rose": {
-        "bg": (255, 240, 244), "title": (85, 34, 56), "text": (120, 70, 90),
-        "accent": (223, 91, 136), "muted": (167, 123, 140), "card": (255, 255, 255),
-    },
-    "lavender": {
-        "bg": (242, 239, 255), "title": (48, 36, 92), "text": (80, 68, 119),
-        "accent": (148, 116, 232), "muted": (136, 126, 170), "card": (255, 255, 255),
-    },
-    "graphite": {
-        "bg": (32, 36, 43), "title": (255, 255, 255), "text": (224, 228, 233),
-        "accent": (169, 180, 192), "muted": (160, 168, 178), "card": (48, 55, 64),
-    },
-    "sand": {
-        "bg": (245, 239, 227), "title": (73, 59, 43), "text": (103, 87, 66),
-        "accent": (189, 139, 69), "muted": (155, 138, 114), "card": (255, 250, 240),
-    },
-    "cyberpunk": {
-        "bg": (21, 19, 38), "title": (255, 255, 255), "text": (231, 222, 254),
-        "accent": (255, 79, 216), "muted": (170, 160, 206), "card": (41, 33, 61),
-    },
+    "aurora": _theme((248, 246, 255), (24, 20, 44), (55, 50, 80), (108, 76, 241), (120, 115, 140), (255, 255, 255)),
+    "midnight": _theme((15, 17, 32), (255, 255, 255), (225, 228, 242), (139, 120, 255), (160, 166, 195), (27, 30, 50)),
+    "minimal": _theme((255, 255, 255), (17, 17, 17), (55, 55, 55), (17, 17, 17), (130, 130, 130), (245, 245, 245)),
+    "corporate": _theme((245, 248, 252), (16, 40, 70), (45, 65, 90), (0, 112, 192), (110, 125, 145), (255, 255, 255)),
+    "ocean": _theme((234, 246, 248), (7, 59, 76), (36, 85, 99), (0, 166, 166), (102, 139, 150), (255, 255, 255)),
+    "sunset": _theme((255, 241, 233), (84, 37, 26), (112, 67, 52), (242, 107, 56), (167, 122, 105), (255, 250, 246)),
+    "forest": _theme((237, 244, 236), (23, 59, 44), (54, 92, 71), (50, 134, 90), (120, 145, 125), (255, 255, 255)),
+    "rose": _theme((255, 240, 244), (85, 34, 56), (120, 70, 90), (223, 91, 136), (167, 123, 140), (255, 255, 255)),
+    "lavender": _theme((242, 239, 255), (48, 36, 92), (80, 68, 119), (148, 116, 232), (136, 126, 170), (255, 255, 255)),
+    "graphite": _theme((32, 36, 43), (255, 255, 255), (224, 228, 233), (169, 180, 192), (160, 168, 178), (48, 55, 64)),
+    "sand": _theme((245, 239, 227), (73, 59, 43), (103, 87, 66), (189, 139, 69), (155, 138, 114), (255, 250, 240)),
+    "cyberpunk": _theme((21, 19, 38), (255, 255, 255), (231, 222, 254), (255, 79, 216), (170, 160, 206), (41, 33, 61)),
 }
+
+DATA_LAYOUTS = ("stats", "two-column", "timeline", "quote")
 
 FONT_REG = "Helvetica"
 FONT_BOLD = "Helvetica-Bold"
@@ -142,6 +119,22 @@ def _draw_text(c, text, x, y, max_width, font, size, color, leading=None):
     return y
 
 
+def _draw_centered(c, text, cx, y, max_width, font, size, color, max_lines=3):
+    """Centered, wrapped text. Returns the y position after the last line."""
+
+    lines = simpleSplit(_safe_text(text), font, size, max_width)[:max_lines]
+    leading = size * 1.3
+
+    c.setFont(font, size)
+    c.setFillColor(_color(color))
+
+    for line in lines:
+        c.drawCentredString(cx, y, line)
+        y -= leading
+
+    return y
+
+
 def _draw_bullets(c, bullets, x, y, max_width, size, color):
     c.setFont(FONT_REG, size)
     c.setFillColor(_color(color))
@@ -174,28 +167,61 @@ def _draw_bullets(c, bullets, x, y, max_width, size, color):
         y -= 3
 
 
-def _download_image(url, timeout=15):
-    if not url:
-        return None
+def _draw_page_number(c, theme, slide_no, total):
+    c.setFont(FONT_REG, 8)
+    c.setFillColor(_color(theme["muted"]))
+    c.drawRightString(PAGE_W - MARGIN, 30, f"{slide_no:02d} / {total:02d}")
 
-    try:
-        response = requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": "SlideWala/1.0"},
-        )
 
-        if (
-            response.ok
-            and (response.headers.get("content-type") or "").startswith("image/")
-            and len(response.content) <= 10 * 1024 * 1024
-        ):
-            return response.content
+def _draw_header(c, data, theme, slide_no):
+    """Standard slide title with a short accent line."""
 
-    except Exception:
-        pass
+    c.setFont(FONT_BOLD, 28)
+    c.setFillColor(_color(theme["title"]))
+    c.drawString(
+        MARGIN, PAGE_H - 85,
+        _safe_text(data.get("title") or f"Slide {slide_no}")[:70]
+    )
 
-    return None
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(MARGIN, PAGE_H - 105, 58, 4, fill=1, stroke=0)
+
+
+def _prefetch_images(slides):
+    """Download slide images concurrently using the safe shared cache.
+
+    Only Wikimedia URLs are fetched (checked inside image_service), so the
+    server cannot be tricked into requesting other websites.
+    """
+
+    results = {}
+
+    def download_one(index, url):
+        try:
+            return index, fetch_image_bytes(url)
+        except Exception:
+            return index, None
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+
+        for index, slide_data in enumerate(slides):
+            if not isinstance(slide_data, dict):
+                continue
+
+            url = slide_data.get("image_source_url")
+
+            if url:
+                futures.append(executor.submit(download_one, index, url))
+
+        for future in as_completed(futures):
+            try:
+                index, image_bytes = future.result()
+                results[index] = image_bytes
+            except Exception:
+                continue
+
+    return results
 
 
 def _draw_image_fit(c, image_bytes, x, y, width, height):
@@ -241,7 +267,7 @@ def _title_page(c, data, theme, author_name=""):
     _draw_background(c, theme["bg"])
 
     c.setFillColor(_color(theme["accent"]))
-    c.rect(65, PAGE_H - 115, 65, 5, fill=1, stroke=0)
+    c.rect(MARGIN, PAGE_H - 115, 65, 5, fill=1, stroke=0)
 
     y = PAGE_H - 190
 
@@ -256,7 +282,7 @@ def _title_page(c, data, theme, author_name=""):
     )
 
     for line in title_lines:
-        c.drawString(65, y, line)
+        c.drawString(MARGIN, y, line)
         y -= 52
 
     subtitle = data.get("subtitle")
@@ -264,68 +290,39 @@ def _title_page(c, data, theme, author_name=""):
     if subtitle:
         y -= 8
         y = _draw_text(
-            c, subtitle, 65, y, PAGE_W - 160,
+            c, subtitle, MARGIN, y, PAGE_W - 160,
             FONT_REG, 18, theme["muted"]
         )
 
     if author_name:
         _draw_text(
-            c,
-            f"Presented by: {author_name}",
-            65,
-            max(y - 55, 90),
-            PAGE_W - 160,
-            FONT_BOLD,
-            15,
-            theme["text"],
+            c, f"Presented by: {author_name}",
+            MARGIN, max(y - 55, 90), PAGE_W - 160,
+            FONT_BOLD, 15, theme["text"],
         )
 
 
-def _thank_you_page(
-    c,
-    theme,
-    author_name="",
-    slide_no=1,
-    total=1,
-):
+def _thank_you_page(c, theme, author_name="", slide_no=1, total=1):
     """Build a clean closing page with the presenter's name."""
 
     _draw_background(c, theme["bg"])
 
     c.setFillColor(_color(theme["accent"]))
-    c.rect(
-        PAGE_W / 2 - 45,
-        PAGE_H / 2 + 75,
-        90,
-        5,
-        fill=1,
-        stroke=0,
-    )
+    c.rect(PAGE_W / 2 - 45, PAGE_H / 2 + 75, 90, 5, fill=1, stroke=0)
 
     c.setFont(FONT_BOLD, 42)
     c.setFillColor(_color(theme["title"]))
-    c.drawCentredString(
-        PAGE_W / 2,
-        PAGE_H / 2 + 15,
-        "Thank You",
-    )
+    c.drawCentredString(PAGE_W / 2, PAGE_H / 2 + 15, "Thank You")
 
     if author_name:
         c.setFont(FONT_REG, 17)
         c.setFillColor(_color(theme["text"]))
         c.drawCentredString(
-            PAGE_W / 2,
-            PAGE_H / 2 - 35,
+            PAGE_W / 2, PAGE_H / 2 - 35,
             _safe_text(f"Presented by: {author_name}"),
         )
 
-    c.setFont(FONT_REG, 8)
-    c.setFillColor(_color(theme["muted"]))
-    c.drawRightString(
-        PAGE_W - 65,
-        30,
-        f"{slide_no:02d} / {total:02d}",
-    )
+    _draw_page_number(c, theme, slide_no, total)
 
 
 def _references_page(c, data, theme):
@@ -334,18 +331,204 @@ def _references_page(c, data, theme):
     c.setFont(FONT_BOLD, 30)
     c.setFillColor(_color(theme["title"]))
     c.drawString(
-        65, PAGE_H - 85,
+        MARGIN, PAGE_H - 85,
         _safe_text(data.get("title") or "References")
     )
 
     c.setFillColor(_color(theme["accent"]))
-    c.rect(65, PAGE_H - 105, 58, 4, fill=1, stroke=0)
+    c.rect(MARGIN, PAGE_H - 105, 58, 4, fill=1, stroke=0)
 
     _draw_bullets(
         c, data.get("bullets") or [],
-        65, PAGE_H - 150, PAGE_W - 130,
-        13, theme["text"]
+        MARGIN, PAGE_H - 150, PAGE_W - 130, 13, theme["text"]
     )
+
+
+# ---------------------------------------------------------------
+# New slide types
+# ---------------------------------------------------------------
+
+def _stats_page(c, data, theme, slide_no, total):
+    _draw_background(c, theme["bg"])
+    _draw_header(c, data, theme, slide_no)
+
+    stats = data["stats"][:4]
+    count = len(stats)
+    gap = 22
+    card_w = (CONTENT_W - gap * (count - 1)) / count
+    card_h = 190
+    card_y = PAGE_H - 135 - card_h
+
+    for i, item in enumerate(stats):
+        x = MARGIN + i * (card_w + gap)
+        cx = x + card_w / 2
+
+        c.setFillColor(_color(theme["card"]))
+        c.roundRect(x, card_y, card_w, card_h, 12, fill=1, stroke=0)
+
+        value = _safe_text(item["value"])
+        size = 40
+
+        while size > 18 and pdfmetrics.stringWidth(
+            value, FONT_BOLD, size
+        ) > card_w - 24:
+            size -= 2
+
+        c.setFont(FONT_BOLD, size)
+        c.setFillColor(_color(theme["accent"]))
+        c.drawCentredString(cx, card_y + 110, value)
+
+        _draw_centered(
+            c, item["label"], cx, card_y + 72, card_w - 30,
+            FONT_REG, 13, theme["muted"],
+        )
+
+    if data.get("bullets"):
+        _draw_bullets(
+            c, data["bullets"][:3],
+            MARGIN, card_y - 40, CONTENT_W, 12, theme["text"]
+        )
+
+    _draw_page_number(c, theme, slide_no, total)
+
+
+def _two_column_page(c, data, theme, slide_no, total):
+    _draw_background(c, theme["bg"])
+    _draw_header(c, data, theme, slide_no)
+
+    gap = 22
+    card_w = (CONTENT_W - gap) / 2
+    card_h = 330
+    card_y = PAGE_H - 135 - card_h
+
+    for i, column in enumerate(data["columns"][:2]):
+        x = MARGIN + i * (card_w + gap)
+
+        c.setFillColor(_color(theme["card"]))
+        c.roundRect(x, card_y, card_w, card_h, 12, fill=1, stroke=0)
+
+        _draw_text(
+            c, column["heading"], x + 22, card_y + card_h - 40,
+            card_w - 44, FONT_BOLD, 19, theme["accent"],
+        )
+
+        _draw_bullets(
+            c, column["bullets"],
+            x + 22, card_y + card_h - 82, card_w - 44, 13, theme["text"]
+        )
+
+    _draw_page_number(c, theme, slide_no, total)
+
+
+def _timeline_page(c, data, theme, slide_no, total):
+    _draw_background(c, theme["bg"])
+    _draw_header(c, data, theme, slide_no)
+
+    steps = data["steps"][:5]
+    col_w = CONTENT_W / len(steps)
+    line_y = PAGE_H - 200
+
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(MARGIN, line_y - 1.5, CONTENT_W, 3, fill=1, stroke=0)
+
+    for i, step in enumerate(steps):
+        x = MARGIN + i * col_w
+        cx = x + 16
+
+        c.setFillColor(_color(theme["accent"]))
+        c.circle(cx, line_y, 16, fill=1, stroke=0)
+
+        c.setFont(FONT_BOLD, 13)
+        c.setFillColor(Color(1, 1, 1))
+        c.drawCentredString(cx, line_y - 5, str(i + 1))
+
+        y = _draw_text(
+            c, step["label"], x, line_y - 50, col_w - 18,
+            FONT_BOLD, 15, theme["title"],
+        )
+
+        _draw_text(
+            c, step["text"], x, y - 6, col_w - 18,
+            FONT_REG, 11.5, theme["text"], leading=15,
+        )
+
+    if data.get("bullets"):
+        _draw_bullets(
+            c, data["bullets"][:2],
+            MARGIN, 105, CONTENT_W, 11, theme["muted"]
+        )
+
+    _draw_page_number(c, theme, slide_no, total)
+
+
+def _quote_page(c, data, theme, slide_no, total):
+    _draw_background(c, theme["bg"])
+
+    c.setFont(FONT_BOLD, 14)
+    c.setFillColor(_color(theme["accent"]))
+    c.drawString(MARGIN, PAGE_H - 70, _safe_text(data.get("title") or "")[:80])
+
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(MARGIN, 140, 5, 280, fill=1, stroke=0)
+
+    c.setFont(FONT_BOLD, 80)
+    c.drawString(MARGIN + 30, PAGE_H - 175, '"')
+
+    y = _draw_text(
+        c, data["quote"], MARGIN + 30, PAGE_H - 235, PAGE_W - 200,
+        FONT_REG, 26, theme["title"], leading=36,
+    )
+
+    if data.get("quote_author"):
+        _draw_text(
+            c, "- " + data["quote_author"], MARGIN + 30, y - 20,
+            PAGE_W - 200, FONT_REG, 16, theme["muted"],
+        )
+
+    _draw_page_number(c, theme, slide_no, total)
+
+
+def _section_page(c, data, theme, slide_no, total):
+    _draw_background(c, theme["bg"])
+
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(0, 0, 25, PAGE_H, fill=1, stroke=0)
+
+    y = _draw_text(
+        c, data.get("title") or "", 85, PAGE_H / 2 + 40, PAGE_W - 170,
+        FONT_BOLD, 40, theme["title"], leading=48,
+    )
+
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(85, y - 5, 80, 5, fill=1, stroke=0)
+
+    bullets = data.get("bullets") or []
+
+    if bullets:
+        _draw_text(
+            c, bullets[0], 85, y - 40, PAGE_W - 170,
+            FONT_REG, 18, theme["muted"],
+        )
+
+    _draw_page_number(c, theme, slide_no, total)
+
+
+def _has_data(layout, data):
+    """Check the slide really contains what its layout needs."""
+
+    if layout == "stats":
+        return len(data.get("stats") or []) >= 2
+
+    if layout == "two-column":
+        return len(data.get("columns") or []) == 2
+
+    if layout == "timeline":
+        return len(data.get("steps") or []) >= 3
+
+    if layout == "quote":
+        return bool(data.get("quote"))
+
+    return True
 
 
 def _content_page(c, data, theme, image_bytes, slide_no, total):
@@ -354,16 +537,16 @@ def _content_page(c, data, theme, image_bytes, slide_no, total):
     layout = data.get("layout") or "content"
     has_image = bool(image_bytes)
 
-    text_x = 65
+    text_x = MARGIN
     text_width = PAGE_W - 130
     text_y = PAGE_H - 145
 
     if has_image and layout in ("image-left", "full-image"):
         text_x = PAGE_W * 0.51
-        text_width = PAGE_W - text_x - 65
+        text_width = PAGE_W - text_x - MARGIN
 
     elif has_image and layout in ("image-right", "content", "intro"):
-        text_x = 65
+        text_x = MARGIN
         text_width = PAGE_W * 0.43
 
     c.setFont(FONT_BOLD, 26)
@@ -393,17 +576,14 @@ def _content_page(c, data, theme, image_bytes, slide_no, total):
 
     if has_image:
         if layout == "full-image":
-            _draw_image_fit(
-                c, image_bytes, 0, 0, PAGE_W, PAGE_H
-            )
+            _draw_image_fit(c, image_bytes, 0, 0, PAGE_W, PAGE_H)
 
             card_x, card_y = 55, 38
             card_w, card_h = PAGE_W * 0.52, 165
 
             c.setFillColor(_color(theme["card"]))
             c.roundRect(
-                card_x, card_y, card_w, card_h,
-                12, fill=1, stroke=0
+                card_x, card_y, card_w, card_h, 12, fill=1, stroke=0
             )
 
             _draw_text(
@@ -420,8 +600,7 @@ def _content_page(c, data, theme, image_bytes, slide_no, total):
 
         elif layout == "image-left":
             _draw_image_fit(
-                c, image_bytes, 40, 90,
-                PAGE_W * 0.43, PAGE_H - 150
+                c, image_bytes, 40, 90, PAGE_W * 0.43, PAGE_H - 150
             )
 
         else:
@@ -430,12 +609,7 @@ def _content_page(c, data, theme, image_bytes, slide_no, total):
                 PAGE_W * 0.39, PAGE_H - 150
             )
 
-    c.setFont(FONT_REG, 8)
-    c.setFillColor(_color(theme["muted"]))
-    c.drawRightString(
-        PAGE_W - 65, 30,
-        f"{slide_no:02d} / {total:02d}"
-    )
+    _draw_page_number(c, theme, slide_no, total)
 
 
 def _notes_pages(c, slides, theme):
@@ -444,7 +618,7 @@ def _notes_pages(c, slides, theme):
 
     c.setFont(FONT_BOLD, 28)
     c.setFillColor(_color(theme["title"]))
-    c.drawString(65, PAGE_H - 75, "Speaker Notes")
+    c.drawString(MARGIN, PAGE_H - 75, "Speaker Notes")
 
     y = PAGE_H - 125
 
@@ -457,11 +631,11 @@ def _notes_pages(c, slides, theme):
 
         c.setFont(FONT_BOLD, 12)
         c.setFillColor(_color(theme["accent"]))
-        c.drawString(65, y, _safe_text(title)[:100])
+        c.drawString(MARGIN, y, _safe_text(title)[:100])
         y -= 18
 
         y = _draw_text(
-            c, notes, 65, y, PAGE_W - 130,
+            c, notes, MARGIN, y, PAGE_W - 130,
             FONT_REG, 10, theme["text"], leading=14
         )
 
@@ -484,22 +658,17 @@ def build_pdf(payload: dict):
     if len(slides) > 20:
         raise ValueError("Too many slides to export.")
 
-    author_name = str(
-        payload.get("author_name") or ""
-    ).strip()[:80]
+    author_name = str(payload.get("author_name") or "").strip()[:80]
 
-    theme_name = str(
-        payload.get("theme") or "aurora"
-    ).lower()
-
+    theme_name = str(payload.get("theme") or "aurora").lower()
     theme = THEMES.get(theme_name, THEMES["aurora"])
+
+    image_results = _prefetch_images(slides)
 
     output = io.BytesIO()
     c = canvas.Canvas(output, pagesize=(PAGE_W, PAGE_H))
 
-    c.setTitle(
-        _safe_text(payload.get("title") or "Presentation")
-    )
+    c.setTitle(_safe_text(payload.get("title") or "Presentation"))
 
     if author_name:
         c.setAuthor(_safe_text(author_name))
@@ -514,42 +683,41 @@ def build_pdf(payload: dict):
 
         # Always make the final presentation page a Thank You page.
         if slide_no == total_slides:
-            _thank_you_page(
-                c,
-                theme,
-                author_name,
-                slide_no,
-                total_slides,
-            )
+            _thank_you_page(c, theme, author_name, slide_no, total_slides)
 
         elif slide_no == 1:
-            _title_page(
-                c,
-                slide_data,
-                theme,
-                author_name,
-            )
+            _title_page(c, slide_data, theme, author_name)
 
         else:
-            layout = str(
-                slide_data.get("layout") or "content"
-            ).lower()
+            layout = str(slide_data.get("layout") or "content").lower()
 
-            image_bytes = _download_image(
-                slide_data.get("image_source_url")
-            )
+            if layout in DATA_LAYOUTS and not _has_data(layout, slide_data):
+                layout = "content"
+
+            image_bytes = image_results.get(index)
 
             if layout == "references":
                 _references_page(c, slide_data, theme)
 
+            elif layout == "stats":
+                _stats_page(c, slide_data, theme, slide_no, total_slides)
+
+            elif layout == "two-column":
+                _two_column_page(c, slide_data, theme, slide_no, total_slides)
+
+            elif layout == "timeline":
+                _timeline_page(c, slide_data, theme, slide_no, total_slides)
+
+            elif layout == "quote":
+                _quote_page(c, slide_data, theme, slide_no, total_slides)
+
+            elif layout == "section":
+                _section_page(c, slide_data, theme, slide_no, total_slides)
+
             else:
                 _content_page(
-                    c,
-                    slide_data,
-                    theme,
-                    image_bytes,
-                    slide_no,
-                    total_slides,
+                    c, slide_data, theme, image_bytes,
+                    slide_no, total_slides,
                 )
 
         c.showPage()
