@@ -235,7 +235,9 @@ def _draw_image_fit(c, image_bytes, x, y, width, height):
         return False
 
 
-def _title_page(c, data, theme):
+def _title_page(c, data, theme, author_name=""):
+    """Build the opening page without product branding."""
+
     _draw_background(c, theme["bg"])
 
     c.setFillColor(_color(theme["accent"]))
@@ -261,14 +263,69 @@ def _title_page(c, data, theme):
 
     if subtitle:
         y -= 8
-        _draw_text(
+        y = _draw_text(
             c, subtitle, 65, y, PAGE_W - 160,
             FONT_REG, 18, theme["muted"]
         )
 
+    if author_name:
+        _draw_text(
+            c,
+            f"Presented by: {author_name}",
+            65,
+            max(y - 55, 90),
+            PAGE_W - 160,
+            FONT_BOLD,
+            15,
+            theme["text"],
+        )
+
+
+def _thank_you_page(
+    c,
+    theme,
+    author_name="",
+    slide_no=1,
+    total=1,
+):
+    """Build a clean closing page with the presenter's name."""
+
+    _draw_background(c, theme["bg"])
+
+    c.setFillColor(_color(theme["accent"]))
+    c.rect(
+        PAGE_W / 2 - 45,
+        PAGE_H / 2 + 75,
+        90,
+        5,
+        fill=1,
+        stroke=0,
+    )
+
+    c.setFont(FONT_BOLD, 42)
+    c.setFillColor(_color(theme["title"]))
+    c.drawCentredString(
+        PAGE_W / 2,
+        PAGE_H / 2 + 15,
+        "Thank You",
+    )
+
+    if author_name:
+        c.setFont(FONT_REG, 17)
+        c.setFillColor(_color(theme["text"]))
+        c.drawCentredString(
+            PAGE_W / 2,
+            PAGE_H / 2 - 35,
+            _safe_text(f"Presented by: {author_name}"),
+        )
+
     c.setFont(FONT_REG, 8)
     c.setFillColor(_color(theme["muted"]))
-    c.drawString(65, 35, "SLIDEWALA  ·  AI PRESENTATION")
+    c.drawRightString(
+        PAGE_W - 65,
+        30,
+        f"{slide_no:02d} / {total:02d}",
+    )
 
 
 def _references_page(c, data, theme):
@@ -395,6 +452,9 @@ def _notes_pages(c, slides, theme):
         title = f"Slide {index}: {slide.get('title') or ''}"
         notes = slide.get("speaker_notes") or ""
 
+        if index == len(slides):
+            title = f"Slide {index}: Thank You"
+
         c.setFont(FONT_BOLD, 12)
         c.setFillColor(_color(theme["accent"]))
         c.drawString(65, y, _safe_text(title)[:100])
@@ -414,6 +474,8 @@ def _notes_pages(c, slides, theme):
 
 
 def build_pdf(payload: dict):
+    """Build a clean PDF presentation with optional presenter name."""
+
     slides = payload.get("slides") or []
 
     if not isinstance(slides, list) or not slides:
@@ -421,6 +483,10 @@ def build_pdf(payload: dict):
 
     if len(slides) > 20:
         raise ValueError("Too many slides to export.")
+
+    author_name = str(
+        payload.get("author_name") or ""
+    ).strip()[:80]
 
     theme_name = str(
         payload.get("theme") or "aurora"
@@ -432,30 +498,59 @@ def build_pdf(payload: dict):
     c = canvas.Canvas(output, pagesize=(PAGE_W, PAGE_H))
 
     c.setTitle(
-        _safe_text(payload.get("title") or "SlideWala Presentation")
+        _safe_text(payload.get("title") or "Presentation")
     )
 
+    if author_name:
+        c.setAuthor(_safe_text(author_name))
+
+    total_slides = len(slides)
+
     for index, slide_data in enumerate(slides):
+        if not isinstance(slide_data, dict):
+            continue
+
         slide_no = index + 1
-        layout = str(
-            slide_data.get("layout") or "content"
-        ).lower()
 
-        image_bytes = _download_image(
-            slide_data.get("image_source_url")
-        )
+        # Always make the final presentation page a Thank You page.
+        if slide_no == total_slides:
+            _thank_you_page(
+                c,
+                theme,
+                author_name,
+                slide_no,
+                total_slides,
+            )
 
-        if slide_no == 1 or layout == "title":
-            _title_page(c, slide_data, theme)
-
-        elif layout == "references":
-            _references_page(c, slide_data, theme)
+        elif slide_no == 1:
+            _title_page(
+                c,
+                slide_data,
+                theme,
+                author_name,
+            )
 
         else:
-            _content_page(
-                c, slide_data, theme,
-                image_bytes, slide_no, len(slides)
+            layout = str(
+                slide_data.get("layout") or "content"
+            ).lower()
+
+            image_bytes = _download_image(
+                slide_data.get("image_source_url")
             )
+
+            if layout == "references":
+                _references_page(c, slide_data, theme)
+
+            else:
+                _content_page(
+                    c,
+                    slide_data,
+                    theme,
+                    image_bytes,
+                    slide_no,
+                    total_slides,
+                )
 
         c.showPage()
 
