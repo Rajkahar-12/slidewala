@@ -22,8 +22,39 @@ a { color: inherit; text-decoration: none; }
 /* Layout */
 .app-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { position: sticky; top: 0; height: 100vh; padding: 28px 20px; background: #050508; color: #fff; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 10px; font-family: "Manrope", sans-serif; font-weight: 800; letter-spacing: -0.5px; font-size: 20px; }
-.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, #e63946, #c1121f); color: #fff; font-weight: 800; box-shadow: 0 4px 14px rgba(230, 57, 70, 0.35); }
+
+/* 🎨 UPDATED LOGO & TEXT STYLES */
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.brand-mark { 
+  display: grid; 
+  place-items: center; 
+  width: 36px; 
+  height: 36px; 
+  border-radius: 10px; 
+  background: linear-gradient(135deg, #e63946, #c1121f); 
+  color: #fff; 
+  box-shadow: 0 4px 15px rgba(230, 57, 70, 0.4); 
+  transition: transform 0.2s ease;
+}
+.brand:hover .brand-mark {
+  transform: scale(1.05) rotate(-3deg);
+}
+.brand-mark svg {
+  width: 20px;
+  height: 20px;
+}
+.brand-text {
+  font-family: "Manrope", sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.8px;
+  background: linear-gradient(90deg, #ffffff 0%, #ff8a8f 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-fill-color: transparent;
+}
+
 .side-nav { display: grid; gap: 6px; margin-top: 38px; }
 .side-nav a { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 10px; color: #a8a8b0; font-size: 13px; font-weight: 600; }
 .side-nav a svg { width: 18px; height: 18px; }
