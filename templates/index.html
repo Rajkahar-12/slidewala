@@ -4,15 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#cbe5ff">
-  <meta name="description" content="SlideWala — AI Presentation Maker">
-  <title>SlideWala</title>
+  <meta name="description" content="SlideWala — Create beautiful AI presentations with real PowerPoint and PDF downloads.">
+  <title>SlideWala — AI Presentation Maker</title>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Added Playfair Display for the serif heading, just like the screenshot -->
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,600&family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=7">
 </head>
 <body>
 
@@ -28,7 +27,7 @@
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <span class="brand-text">SlideWala</span>
+      <span class="brand-text" style="font-family: Manrope; font-weight: 800;">SlideWala</span>
       <button class="close-btn" id="closeSidebar">&times;</button>
     </div>
     <nav class="sidebar-nav">
@@ -73,45 +72,38 @@
   <main class="main">
     <section class="hero" id="create">
       
-      <!-- Center App Icon -->
-      <div class="app-icon">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="3" y="3" width="18" height="14" rx="2" stroke="#fff" stroke-width="2"/>
-          <path d="M8 21H16M12 17V21" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="8" cy="8" r="1.5" fill="#fff"/>
-          <path d="M12 8H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-          <path d="M8 12H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </div>
-
       <div class="hero-header">
         <h1>What are we <span>creating?</span></h1>
         <p>A focused presentation companion for students, teachers, and professionals.</p>
       </div>
 
-      <form class="create-form" id="createForm">
-        
-        <!-- Search Bar Style Topic Input -->
-        <div class="search-bar">
-          <button type="button" class="search-icon-left" title="Settings">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-          </button>
-          <input
-            type="text"
+      <form class="create-card" id="createForm">
+        <div class="field">
+          <label for="topic">Presentation Topic</label>
+          <textarea
             id="topic"
             name="topic"
             maxlength="200"
-            placeholder="Ask a topic... (e.g. How AI is changing healthcare)"
+            rows="2"
+            placeholder="e.g. How artificial intelligence is changing healthcare"
             required
-            autocomplete="off"
-          >
-          <button class="btn-send" id="generateBtn" type="submit">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          ></textarea>
+          <span class="field-hint"><span id="topicCount">0</span>/200</span>
         </div>
 
-        <!-- Options Grid (Slides, Audience, Theme) -->
-        <div class="options-grid">
+        <div class="field">
+          <label for="authorName">Your name (optional)</label>
+          <input
+            type="text"
+            id="authorName"
+            name="author_name"
+            maxlength="80"
+            placeholder="e.g. Your Name"
+            autocomplete="name"
+          >
+        </div>
+
+        <div class="field-grid">
           <div class="field">
             <label for="audience">Audience</label>
             <select id="audience" name="audience">
@@ -129,29 +121,56 @@
               <option value="formal">Formal</option>
               <option value="persuasive">Persuasive</option>
               <option value="casual">Casual</option>
+              <option value="inspiring">Inspiring</option>
             </select>
           </div>
 
           <div class="field">
-            <label for="theme">Theme</label>
-            <select id="theme" name="theme">
-              <option value="aurora" selected>Aurora</option>
-              <option value="midnight">Midnight</option>
-              <option value="minimal">Minimal</option>
-              <option value="corporate">Corporate</option>
+            <label for="deckType">Presentation type</label>
+            <select id="deckType" name="deck_type">
+              <option value="lecture" selected>Lecture / class</option>
+              <option value="pitch">Pitch / business</option>
+              <option value="report">Report / project</option>
+              <option value="story">Storytelling</option>
             </select>
-          </div>
-
-          <div class="field">
-            <label>Slides</label>
-            <div class="segmented" id="slideCount">
-              <button type="button" data-count="5">5</button>
-              <button type="button" data-count="8">8</button>
-              <button type="button" data-count="10" class="active">10</button>
-              <button type="button" data-count="12">12</button>
-            </div>
           </div>
         </div>
+
+        <div class="field">
+          <label>Number of slides</label>
+          <div class="segmented" id="slideCount" role="radiogroup">
+            <button type="button" data-count="5">5</button>
+            <button type="button" data-count="8">8</button>
+            <button type="button" data-count="10" class="active">10</button>
+            <button type="button" data-count="12">12</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Content length</label>
+          <div class="segmented" id="contentLength" role="radiogroup">
+            <button type="button" data-length="short">Short</button>
+            <button type="button" data-length="medium" class="active">Medium</button>
+            <button type="button" data-length="detailed">Detailed</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="theme">Design theme</label>
+          <select id="theme" name="theme">
+            <option value="aurora" selected>Aurora — Soft purple</option>
+            <option value="midnight">Midnight — Dark premium</option>
+            <option value="minimal">Minimal — Clean white</option>
+            <option value="corporate">Corporate — Professional blue</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary btn-generate" id="generateBtn" type="submit">
+          <span class="btn-label">Generate presentation</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </form>
     </section>
 
@@ -173,7 +192,7 @@
 
       <div class="preview-layout">
         <div class="stage-wrap">
-          <div class="slide-stage" id="slideStage" aria-live="polite"></div>
+          <div class="slide-stage" id="slideStage"></div>
           <div class="stage-controls">
             <button class="icon-btn" id="prevBtn" type="button">&#8249;</button>
             <span id="slideCounter">1 / 10</span>
@@ -210,31 +229,23 @@
 
   <!-- JS for Menus -->
   <script>
-    // Sidebar Logic
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
     document.getElementById('openSidebar').addEventListener('click', () => {
-      sidebar.classList.add('open');
-      overlay.classList.add('show');
+      sidebar.classList.add('open'); overlay.classList.add('show');
     });
     function closeSidebar() {
-      sidebar.classList.remove('open');
-      overlay.classList.remove('show');
+      sidebar.classList.remove('open'); overlay.classList.remove('show');
     }
     document.getElementById('closeSidebar').addEventListener('click', closeSidebar);
     overlay.addEventListener('click', closeSidebar);
 
-    // Dots Menu Logic
     const dotsMenu = document.getElementById('dotsMenu');
     document.getElementById('dotsMenuBtn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      dotsMenu.classList.toggle('show');
+      e.stopPropagation(); dotsMenu.classList.toggle('show');
     });
-    window.addEventListener('click', () => {
-      dotsMenu.classList.remove('show');
-    });
+    window.addEventListener('click', () => { dotsMenu.classList.remove('show'); });
 
-    // New Deck Reset
     function resetForm() {
       document.getElementById('createForm').reset();
       document.getElementById('workspace').classList.add('hidden');
@@ -243,7 +254,6 @@
     }
   </script>
   
-  <!-- App Logic -->
   <script src="{{ url_for('static', filename='js/layouts.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
