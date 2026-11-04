@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,16 +7,15 @@
   <meta name="theme-color" content="#cbe5ff">
   <meta name="description" content="SlideWala — Create beautiful AI presentations with real PowerPoint and PDF downloads.">
   <title>SlideWala — AI Presentation Maker</title>
-  
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=8">
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=9">
 </head>
 <body>
 
-  <!-- ☁️ BACKGROUND CLOUDS -->
   <div class="cloud-layer">
     <div class="cloud c1"></div>
     <div class="cloud c2"></div>
@@ -23,43 +23,55 @@
     <div class="cloud c4"></div>
   </div>
 
-  <!-- ☰ LEFT SIDEBAR -->
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span class="brand-text" style="font-family: Manrope; font-weight: 800;">SlideWala</span>
       <button class="close-btn" id="closeSidebar">&times;</button>
     </div>
+
     <nav class="sidebar-nav">
       <button class="nav-item" onclick="resetForm()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+        </svg>
         New Deck
       </button>
+
       <button class="nav-item text-red">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke-linecap="round"/>
+        </svg>
         Delete History
       </button>
     </nav>
   </aside>
 
-  <!-- TOP NAVIGATION BAR -->
   <header class="topbar">
     <div class="topbar-left">
       <button class="icon-menu" id="openSidebar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12h18M3 6h18M3 18h18" stroke-linecap="round"/>
+        </svg>
       </button>
+
       <span class="brand-text-top">SlideWala</span>
       <span class="mini-pill">AI STUDIO</span>
     </div>
-    
+
     <div class="topbar-right">
       <div class="status-dot"><span></span> Online</div>
-      
-      <!-- ... MENU -->
+
       <div class="dropdown">
         <button class="icon-menu" id="dotsMenuBtn">
-          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="12" r="2"/>
+            <circle cx="12" cy="12" r="2"/>
+            <circle cx="19" cy="12" r="2"/>
+          </svg>
         </button>
+
         <div class="dropdown-content" id="dotsMenu">
           <a href="#" onclick="alert('Terms & Conditions: This is a demo app. Do not use for illegal purposes.')">Terms & Conditions</a>
           <a href="#" onclick="alert('Privacy Policy: We do not save your data.')">Privacy Policy</a>
@@ -68,19 +80,19 @@
     </div>
   </header>
 
-  <!-- MAIN CONTENT -->
   <main class="main">
     <section class="hero" id="create">
-      
+
       <div class="hero-header">
         <h1>What are we <span>creating?</span></h1>
         <p>A focused presentation companion for students, teachers, and professionals.</p>
       </div>
 
-      <!-- RESTORED PHASE 3 FORM -->
       <form class="create-card" id="createForm">
+
         <div class="field">
           <label for="topic">Presentation Topic</label>
+
           <textarea
             id="topic"
             name="topic"
@@ -89,24 +101,17 @@
             placeholder="e.g. How artificial intelligence is changing healthcare"
             required
           ></textarea>
-          <span class="field-hint"><span id="topicCount">0</span>/200</span>
-        </div>
 
-        <div class="field">
-          <label for="authorName">Your name (optional)</label>
-          <input
-            type="text"
-            id="authorName"
-            name="author_name"
-            maxlength="80"
-            placeholder="e.g. Your Name"
-            autocomplete="name"
-          >
+          <span class="field-hint">
+            <span id="topicCount">0</span>/200
+          </span>
         </div>
 
         <div class="field-grid">
+
           <div class="field">
             <label for="audience">Audience</label>
+
             <select id="audience" name="audience">
               <option value="student">Students</option>
               <option value="teacher">Teachers</option>
@@ -117,6 +122,7 @@
 
           <div class="field">
             <label for="tone">Tone</label>
+
             <select id="tone" name="tone">
               <option value="educational" selected>Educational</option>
               <option value="formal">Formal</option>
@@ -128,6 +134,7 @@
 
           <div class="field">
             <label for="deckType">Presentation type</label>
+
             <select id="deckType" name="deck_type">
               <option value="lecture" selected>Lecture / class</option>
               <option value="pitch">Pitch / business</option>
@@ -135,20 +142,23 @@
               <option value="story">Storytelling</option>
             </select>
           </div>
+
         </div>
 
         <div class="field">
           <label>Number of slides</label>
+
           <div class="segmented" id="slideCount" role="radiogroup" aria-label="Number of slides">
-            <button type="button" data-count="5">5</button>
-            <button type="button" data-count="8">8</button>
-            <button type="button" data-count="10" class="active">10</button>
-            <button type="button" data-count="12">12</button>
+            <button type="button" data-count="5" aria-checked="false">5</button>
+            <button type="button" data-count="8" aria-checked="false">8</button>
+            <button type="button" data-count="10" class="active" aria-checked="true">10</button>
+            <button type="button" data-count="12" aria-checked="false">12</button>
           </div>
         </div>
 
         <div class="field">
           <label>Content length</label>
+
           <div class="segmented" id="contentLength" role="radiogroup" aria-label="Content length">
             <button type="button" data-length="short" aria-pressed="false">Short</button>
             <button type="button" data-length="medium" class="active" aria-pressed="true">Medium</button>
@@ -158,31 +168,43 @@
 
         <div class="field">
           <label for="theme">Design theme</label>
+
           <select id="theme" name="theme">
             <option value="aurora" selected>Aurora — Soft purple</option>
             <option value="midnight">Midnight — Dark premium</option>
             <option value="minimal">Minimal — Clean white</option>
             <option value="corporate">Corporate — Professional blue</option>
+            <option value="ocean">Ocean — Fresh teal</option>
+            <option value="sunset">Sunset — Warm orange</option>
+            <option value="forest">Forest — Natural green</option>
+            <option value="rose">Rose — Elegant pink</option>
+            <option value="lavender">Lavender — Soft violet</option>
+            <option value="graphite">Graphite — Modern grey</option>
+            <option value="sand">Sand — Warm neutral</option>
+            <option value="cyberpunk">Cyberpunk — Neon futuristic</option>
           </select>
         </div>
 
         <button class="btn btn-primary btn-generate" id="generateBtn" type="submit">
           <span class="btn-label">Generate presentation</span>
+
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+
       </form>
     </section>
 
-    <!-- Generated Workspace -->
     <section class="workspace hidden" id="workspace">
+
       <div class="workspace-head">
         <div>
           <span class="pill">Generated deck</span>
           <h2 id="deckTitle">Your presentation</h2>
           <p id="deckSubtitle"></p>
         </div>
+
         <div class="workspace-actions">
           <button class="btn btn-ghost" id="copyBtn" type="button">Copy outline</button>
           <button class="btn btn-ghost" id="regenerateBtn" type="button">Regenerate</button>
@@ -192,8 +214,10 @@
       </div>
 
       <div class="preview-layout">
+
         <div class="stage-wrap">
           <div class="slide-stage" id="slideStage" aria-live="polite"></div>
+
           <div class="stage-controls">
             <button class="icon-btn" id="prevBtn" type="button" aria-label="Previous slide">&#8249;</button>
             <span id="slideCounter">1 / 10</span>
@@ -206,12 +230,15 @@
             <span>Slides</span>
             <span id="thumbCount">10</span>
           </div>
+
           <div class="thumbnails" id="thumbnails"></div>
+
           <div class="notes-card">
             <h4>Speaker notes</h4>
             <p id="speakerNotes">Select a slide to see its notes.</p>
           </div>
         </aside>
+
       </div>
     </section>
 
@@ -231,24 +258,33 @@
     </div>
   </div>
 
-  <!-- JS for Menus -->
   <script>
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
+
     document.getElementById('openSidebar').addEventListener('click', () => {
-      sidebar.classList.add('open'); overlay.classList.add('show');
+      sidebar.classList.add('open');
+      overlay.classList.add('show');
     });
+
     function closeSidebar() {
-      sidebar.classList.remove('open'); overlay.classList.remove('show');
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
     }
+
     document.getElementById('closeSidebar').addEventListener('click', closeSidebar);
     overlay.addEventListener('click', closeSidebar);
 
     const dotsMenu = document.getElementById('dotsMenu');
-    document.getElementById('dotsMenuBtn').addEventListener('click', (e) => {
-      e.stopPropagation(); dotsMenu.classList.toggle('show');
+
+    document.getElementById('dotsMenuBtn').addEventListener('click', (event) => {
+      event.stopPropagation();
+      dotsMenu.classList.toggle('show');
     });
-    window.addEventListener('click', () => { dotsMenu.classList.remove('show'); });
+
+    window.addEventListener('click', () => {
+      dotsMenu.classList.remove('show');
+    });
 
     function resetForm() {
       document.getElementById('createForm').reset();
@@ -257,9 +293,8 @@
       closeSidebar();
     }
   </script>
-  
-  <!-- App Logic -->
-  <script src="{{ url_for('static', filename='js/layouts.js') }}" defer></script>
+
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+
 </body>
 </html>
