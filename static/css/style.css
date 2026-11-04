@@ -18,18 +18,56 @@ html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  /* ☁️ Cloudy Background (Pink, Blue, White) - !important ensures it overrides old styles */
   background-color: #f8fafc !important;
-  background-image: 
-    radial-gradient(circle at 10% 20%, rgba(236, 72, 153, 0.25) 0%, transparent 40%),
-    radial-gradient(circle at 90% 30%, rgba(59, 130, 246, 0.25) 0%, transparent 45%),
-    radial-gradient(circle at 50% 80%, rgba(255, 255, 255, 0.9) 0%, transparent 50%),
-    linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important;
-  background-attachment: fixed !important;
   color: var(--ink);
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* ☁️ MOVING CLOUDS BACKGROUND */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  top: 0; left: 0;
+  width: 200vw; height: 100vh;
+  pointer-events: none;
+  z-index: -1;
+  background-repeat: repeat-x;
+}
+
+/* Layer 1: Fast moving white clouds */
+body::before {
+  background-image: 
+    radial-gradient(circle, rgba(255, 255, 255, 0.8) 0%, transparent 40%),
+    radial-gradient(circle, rgba(255, 255, 255, 0.6) 0%, transparent 40%);
+  background-size: 50vw 50vw, 60vw 60vw;
+  background-position: 0 0, 20vw 20vh;
+  filter: blur(30px);
+  animation: drift1 45s linear infinite;
+}
+
+/* Layer 2: Slower moving pink & blue clouds */
+body::after {
+  background-image: 
+    radial-gradient(circle, rgba(236, 72, 153, 0.15) 0%, transparent 50%),
+    radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+    radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, transparent 50%);
+  background-size: 80vw 80vw, 60vw 60vw, 70vw 70vw;
+  background-position: 10vw 10vh, 40vw 50vh, 80vw 20vh;
+  filter: blur(50px);
+  animation: drift2 80s linear infinite;
+}
+
+@keyframes drift1 {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50vw); }
+}
+
+@keyframes drift2 {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50vw); }
 }
 
 button, input, textarea, select { font: inherit; }
@@ -38,7 +76,7 @@ a { color: inherit; text-decoration: none; }
 .hidden { display: none !important; }
 
 /* Layout */
-.app-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+.app-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; position: relative; z-index: 1; }
 
 /* 🧊 Frosted Glass Sidebar */
 .sidebar { 
