@@ -1,6 +1,9 @@
-"""Optimized Wikimedia image service for SlideWala."""
+
+"""Fast, cached Wikimedia image service for SlideWala."""
 
 import os
+import re
+import logging
 import requests
 
 from functools import lru_cache
@@ -8,27 +11,35 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 
+logger = logging.getLogger(__name__)
+
 USER_AGENT = os.getenv(
     "WIKIMEDIA_USER_AGENT",
     "SlideWala/1.0 (presentation generator)"
 )
 
-HEADERS = {"User-Agent": USER_AGENT}
+HEADERS = {
+    "User-Agent": USER_AGENT,
+}
 
 ALLOWED_HOSTS = (
     "upload.wikimedia.org",
     "commons.wikimedia.org",
 )
 
-IMAGE_SEARCH_TIMEOUT = 8
-IMAGE_DOWNLOAD_TIMEOUT = 10
-MAX_IMAGE_SIZE = 10 * 1024 * 1024
-MAX_WORKERS = 8
+# Separate connection and response timeouts.
+IMAGE_SEARCH_TIMEOUT = (3, 5)
+IMAGE_DOWNLOAD_TIMEOUT = (3, 8)
 
-# Layouts that never show a picture.
+MAX_IMAGE_SIZE = 8 * 1024 * 1024
+MAX_WORKERS = 6
+SEARCH_RESULT_LIMIT = 3
+
+# Layouts that never need an image.
 NO_IMAGE_LAYOUTS = {
     "title", "conclusion", "references",
-    "section", "stats", "two-column", "timeline", "quote",
+    "section", "stats", "two-column",
+    "timeline", "quote",
 }
 
 
@@ -36,7 +47,12 @@ def is_valid_wikimedia_url(url):
     """Allow images only from Wikimedia domains."""
 
     try:
-        host = urlparse(url).hostname
+        parsed = urlparse(url)
+
+        if parsed.scheme != "https":
+            return False
+
+        host = parsed.hostname
 
         return bool(host) and any(
             host == allowed or host.endswith("." + allowed)
@@ -59,26 +75,27 @@ def _fetch_image_cached(url):
             url,
             headers=HEADERS,
             timeout=IMAGE_DOWNLOAD_TIMEOUT,
-            stream=True
+            stream=True,
         ) as response:
 
             response.raise_for_status()
 
             content_type = response.headers.get(
                 "Content-Type", ""
-            )
+            ).split(";")[0].lower()
 
             if not content_type.startswith("image/"):
                 return None
 
             data = response.raw.read(MAX_IMAGE_SIZE + 1)
 
-            if len(data) > MAX_IMAGE_SIZE:
+            if not data or len(data) > MAX_IMAGE_SIZE:
                 return None
 
             return data, content_type
 
     except requests.RequestException:
+        logger.warning("Wikimedia image download failed.")
         return None
 
 
@@ -103,11 +120,16 @@ def proxy_image(url):
 
 
 @lru_cache(maxsize=256)
-def search_wikimedia(query, limit=4):
+def search_wikimedia(query, limit=SEARCH_RESULT_LIMIT):
     """Search Wikimedia Commons for relevant images."""
+
+    query = str(query or "").strip()
 
     if not query:
         return []
+
+    # Avoid unnecessarily long search requests.
+    query = query[:180]
 
     api_url = "https://commons.wikimedia.org/w/api.php"
 
@@ -116,10 +138,10 @@ def search_wikimedia(query, limit=4):
         "generator": "search",
         "gsrsearch": "filetype:bitmap " + query,
         "gsrnamespace": 6,
-        "gsrlimit": limit,
+        "gsrlimit": min(max(int(limit), 1), 4),
         "prop": "imageinfo",
         "iiprop": "url|extmetadata",
-        "iiurlwidth": 1200,
+        "iiurlwidth": 1000,
         "format": "json",
     }
 
@@ -128,18 +150,26 @@ def search_wikimedia(query, limit=4):
             api_url,
             params=params,
             headers=HEADERS,
-            timeout=IMAGE_SEARCH_TIMEOUT
+            timeout=IMAGE_SEARCH_TIMEOUT,
         ) as response:
 
             response.raise_for_status()
             payload = response.json()
 
-        pages = payload.get("query", {}).get("pages", {})
+        pages = payload.get(
+            "query", {}
+        ).get("pages", {})
+
         results = []
 
         for page in pages.values():
 
-            image_info = page.get("imageinfo", [{}])[0]
+            image_info_list = page.get("imageinfo") or []
+
+            if not image_info_list:
+                continue
+
+            image_info = image_info_list[0]
 
             image_url = (
                 image_info.get("thumburl")
@@ -168,8 +198,12 @@ def search_wikimedia(query, limit=4):
         requests.RequestException,
         ValueError,
         KeyError,
-        TypeError
+        TypeError,
     ):
+        logger.warning(
+            "Wikimedia search failed for query: %s",
+            query[:70],
+        )
         return []
 
 
@@ -193,7 +227,12 @@ def _get_image_for_slide(slide):
     if not query:
         return slide
 
-    images = search_wikimedia(query, limit=4)
+    query = re.sub(r"\s+", " ", query)[:180]
+
+    images = search_wikimedia(
+        query,
+        limit=SEARCH_RESULT_LIMIT,
+    )
 
     if not images:
         return slide
@@ -212,7 +251,7 @@ def _get_image_for_slide(slide):
 
 
 def enrich_slides_with_images(slides):
-    """Add relevant images to slides using parallel searches."""
+    """Add relevant Wikimedia images using parallel cached searches."""
 
     if not isinstance(slides, list):
         return slides
@@ -232,7 +271,6 @@ def enrich_slides_with_images(slides):
             slide.get("title") or ""
         ).strip().lower()
 
-        # These slides do not need Wikimedia images.
         if layout in NO_IMAGE_LAYOUTS:
             continue
 
@@ -246,17 +284,20 @@ def enrich_slides_with_images(slides):
 
     worker_count = min(
         MAX_WORKERS,
-        len(eligible_slides)
+        len(eligible_slides),
     )
 
+    start_count = 0
+
     with ThreadPoolExecutor(
-        max_workers=worker_count
+        max_workers=worker_count,
+        thread_name_prefix="slidewala-image",
     ) as executor:
 
         futures = [
             executor.submit(
                 _get_image_for_slide,
-                slide
+                slide,
             )
             for slide in eligible_slides
         ]
@@ -265,8 +306,16 @@ def enrich_slides_with_images(slides):
 
             try:
                 future.result()
+                start_count += 1
 
             except Exception:
-                pass
+                logger.exception(
+                    "An image search failed for a slide."
+                )
+
+    logger.info(
+        "SlideWala processed images for %s slides.",
+        start_count,
+    )
 
     return slides
