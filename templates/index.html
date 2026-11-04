@@ -4,13 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#cbe5ff">
-  <meta name="description" content="SlideWala — Create beautiful AI presentations with real PowerPoint and PDF downloads.">
-  <title>SlideWala — AI Presentation Maker</title>
+  <meta name="description" content="SlideWala — AI Presentation Maker">
+  <title>SlideWala</title>
+  
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Added Playfair Display for the serif heading, just like the screenshot -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,600&family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6">
 </head>
 <body>
 
@@ -22,179 +24,182 @@
     <div class="cloud c4"></div>
   </div>
 
-  <div class="app-shell">
-    <!-- Top Navigation Bar -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <a class="brand" href="/">
-          <span class="brand-mark">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="3" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
-              <path d="M8 21H16M12 17V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
-              <path d="M12 8H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <path d="M8 12H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span class="brand-text">SlideWala</span>
-        </a>
-        <span class="mini-pill">AI STUDIO</span>
-      </div>
-      <div class="topbar-right">
-        <div class="status-dot"><span></span> Online</div>
-      </div>
-    </header>
+  <!-- ☰ LEFT SIDEBAR (Hidden by default) -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="brand-text">SlideWala</span>
+      <button class="close-btn" id="closeSidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item" onclick="resetForm()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        New Deck
+      </button>
+      <button class="nav-item text-red">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke-linecap="round"/></svg>
+        Delete History
+      </button>
+    </nav>
+  </aside>
 
-    <!-- Main Content -->
-    <main class="main">
-      <section class="hero" id="create">
+  <!-- TOP NAVIGATION BAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-menu" id="openSidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18" stroke-linecap="round"/></svg>
+      </button>
+      <span class="brand-text-top">SlideWala</span>
+      <span class="mini-pill">AI STUDIO</span>
+    </div>
+    
+    <div class="topbar-right">
+      <div class="status-dot"><span></span> Online</div>
+      
+      <!-- ... MENU -->
+      <div class="dropdown">
+        <button class="icon-menu" id="dotsMenuBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+        </button>
+        <div class="dropdown-content" id="dotsMenu">
+          <a href="#" onclick="alert('Terms & Conditions: This is a demo app. Do not use for illegal purposes.')">Terms & Conditions</a>
+          <a href="#" onclick="alert('Privacy Policy: We do not save your data.')">Privacy Policy</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+    <section class="hero" id="create">
+      
+      <!-- Center App Icon -->
+      <div class="app-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="3" width="18" height="14" rx="2" stroke="#fff" stroke-width="2"/>
+          <path d="M8 21H16M12 17V21" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="8" cy="8" r="1.5" fill="#fff"/>
+          <path d="M12 8H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 12H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <div class="hero-header">
+        <h1>What are we <span>creating?</span></h1>
+        <p>A focused presentation companion for students, teachers, and professionals.</p>
+      </div>
+
+      <form class="create-form" id="createForm">
         
-        <div class="hero-header">
-          <h1>What are we <span>creating?</span></h1>
-          <p>A focused presentation companion for students, teachers, and professionals.</p>
+        <!-- Search Bar Style Topic Input -->
+        <div class="search-bar">
+          <button type="button" class="search-icon-left" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <input
+            type="text"
+            id="topic"
+            name="topic"
+            maxlength="200"
+            placeholder="Ask a topic... (e.g. How AI is changing healthcare)"
+            required
+            autocomplete="off"
+          >
+          <button class="btn-send" id="generateBtn" type="submit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
 
-        <form class="create-card" id="createForm">
+        <!-- Options Grid (Slides, Audience, Theme) -->
+        <div class="options-grid">
           <div class="field">
-            <label for="topic">Presentation Topic</label>
-            <textarea
-              id="topic"
-              name="topic"
-              maxlength="200"
-              rows="2"
-              placeholder="Ask a topic... (e.g. How AI is changing healthcare)"
-              required
-            ></textarea>
-            <span class="field-hint"><span id="topicCount">0</span>/200</span>
+            <label for="audience">Audience</label>
+            <select id="audience" name="audience">
+              <option value="student">Students</option>
+              <option value="teacher">Teachers</option>
+              <option value="professional">Professionals</option>
+              <option value="general" selected>General audience</option>
+            </select>
           </div>
 
           <div class="field">
-            <label for="authorName">Your name (optional)</label>
-            <input
-              type="text"
-              id="authorName"
-              name="author_name"
-              maxlength="80"
-              placeholder="e.g. Your Name"
-              autocomplete="name"
-            >
-          </div>
-
-          <div class="field-grid">
-            <div class="field">
-              <label for="audience">Audience</label>
-              <select id="audience" name="audience">
-                <option value="student">Students</option>
-                <option value="teacher">Teachers</option>
-                <option value="professional">Professionals</option>
-                <option value="general" selected>General audience</option>
-              </select>
-            </div>
-
-            <div class="field">
-              <label for="tone">Tone</label>
-              <select id="tone" name="tone">
-                <option value="educational" selected>Educational</option>
-                <option value="formal">Formal</option>
-                <option value="persuasive">Persuasive</option>
-                <option value="casual">Casual</option>
-                <option value="inspiring">Inspiring</option>
-              </select>
-            </div>
+            <label for="tone">Tone</label>
+            <select id="tone" name="tone">
+              <option value="educational" selected>Educational</option>
+              <option value="formal">Formal</option>
+              <option value="persuasive">Persuasive</option>
+              <option value="casual">Casual</option>
+            </select>
           </div>
 
           <div class="field">
-            <label>Number of slides</label>
-            <div class="segmented" id="slideCount" role="radiogroup" aria-label="Number of slides">
+            <label for="theme">Theme</label>
+            <select id="theme" name="theme">
+              <option value="aurora" selected>Aurora</option>
+              <option value="midnight">Midnight</option>
+              <option value="minimal">Minimal</option>
+              <option value="corporate">Corporate</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Slides</label>
+            <div class="segmented" id="slideCount">
               <button type="button" data-count="5">5</button>
               <button type="button" data-count="8">8</button>
               <button type="button" data-count="10" class="active">10</button>
               <button type="button" data-count="12">12</button>
             </div>
           </div>
+        </div>
+      </form>
+    </section>
 
-          <div class="field">
-            <label>Content length</label>
-            <div class="segmented" id="contentLength" role="radiogroup" aria-label="Content length">
-              <button type="button" data-length="short" aria-pressed="false">Short</button>
-              <button type="button" data-length="medium" class="active" aria-pressed="true">Medium</button>
-              <button type="button" data-length="detailed" aria-pressed="false">Detailed</button>
-            </div>
-          </div>
+    <!-- Generated Workspace -->
+    <section class="workspace hidden" id="workspace">
+      <div class="workspace-head">
+        <div>
+          <span class="pill">Generated deck</span>
+          <h2 id="deckTitle">Your presentation</h2>
+          <p id="deckSubtitle"></p>
+        </div>
+        <div class="workspace-actions">
+          <button class="btn btn-ghost" id="copyBtn" type="button">Copy outline</button>
+          <button class="btn btn-ghost" id="regenerateBtn" type="button">Regenerate</button>
+          <button class="btn btn-primary" id="downloadPptx" type="button">Download PPTX</button>
+          <button class="btn btn-secondary" id="downloadPdf" type="button">Download PDF</button>
+        </div>
+      </div>
 
-          <div class="field">
-            <label for="theme">Design theme</label>
-            <select id="theme" name="theme">
-              <option value="aurora" selected>Aurora — Soft purple</option>
-              <option value="midnight">Midnight — Dark premium</option>
-              <option value="minimal">Minimal — Clean white</option>
-              <option value="corporate">Corporate — Professional blue</option>
-              <option value="ocean">Ocean — Fresh teal</option>
-              <option value="sunset">Sunset — Warm orange</option>
-              <option value="forest">Forest — Natural green</option>
-              <option value="rose">Rose — Soft pink</option>
-            </select>
-          </div>
-
-          <button class="btn btn-primary btn-generate" id="generateBtn" type="submit">
-            <span class="btn-label">Generate presentation</span>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </form>
-      </section>
-
-      <!-- Generated Workspace -->
-      <section class="workspace hidden" id="workspace">
-        <div class="workspace-head">
-          <div>
-            <span class="pill">Generated deck</span>
-            <h2 id="deckTitle">Your presentation</h2>
-            <p id="deckSubtitle"></p>
-          </div>
-          <div class="workspace-actions">
-            <button class="btn btn-ghost" id="copyBtn" type="button">Copy outline</button>
-            <button class="btn btn-ghost" id="regenerateBtn" type="button">Regenerate</button>
-            <button class="btn btn-primary" id="downloadPptx" type="button">Download PPTX</button>
-            <button class="btn btn-secondary" id="downloadPdf" type="button">Download PDF</button>
+      <div class="preview-layout">
+        <div class="stage-wrap">
+          <div class="slide-stage" id="slideStage" aria-live="polite"></div>
+          <div class="stage-controls">
+            <button class="icon-btn" id="prevBtn" type="button">&#8249;</button>
+            <span id="slideCounter">1 / 10</span>
+            <button class="icon-btn" id="nextBtn" type="button">&#8250;</button>
           </div>
         </div>
 
-        <div class="preview-layout">
-          <div class="stage-wrap">
-            <div class="slide-stage" id="slideStage" aria-live="polite"></div>
-            <div class="stage-controls">
-              <button class="icon-btn" id="prevBtn" type="button" aria-label="Previous slide">&#8249;</button>
-              <span id="slideCounter">1 / 10</span>
-              <button class="icon-btn" id="nextBtn" type="button" aria-label="Next slide">&#8250;</button>
-            </div>
+        <aside class="preview-side">
+          <div class="thumbs-head"><span>Slides</span><span id="thumbCount">10</span></div>
+          <div class="thumbnails" id="thumbnails"></div>
+          <div class="notes-card">
+            <h4>Speaker notes</h4>
+            <p id="speakerNotes">Select a slide to see its notes.</p>
           </div>
+        </aside>
+      </div>
+    </section>
 
-          <aside class="preview-side">
-            <div class="thumbs-head">
-              <span>Slides</span>
-              <span id="thumbCount">10</span>
-            </div>
-            <div class="thumbnails" id="thumbnails"></div>
-            <div class="notes-card">
-              <h4>Speaker notes</h4>
-              <p id="speakerNotes">Select a slide to see its notes.</p>
-            </div>
-          </aside>
-        </div>
-      </section>
+    <footer class="site-footer">
+      <span>SlideWala is an AI study & work aid — always verify important information.</span>
+    </footer>
+  </main>
 
-      <footer class="site-footer">
-        <span>SlideWala is an AI study & work aid — always verify important information.</span>
-      </footer>
-    </main>
-  </div>
+  <div class="toast" id="toast"></div>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-  <!-- Loading Overlay -->
-  <div class="loading-overlay hidden" id="loadingOverlay" aria-live="polite" aria-busy="true">
+  <div class="loading-overlay hidden" id="loadingOverlay">
     <div class="loading-card">
       <div class="loader-ring"></div>
       <h3 id="loadingTitle">Designing your presentation</h3>
@@ -203,6 +208,42 @@
     </div>
   </div>
 
+  <!-- JS for Menus -->
+  <script>
+    // Sidebar Logic
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    document.getElementById('openSidebar').addEventListener('click', () => {
+      sidebar.classList.add('open');
+      overlay.classList.add('show');
+    });
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    }
+    document.getElementById('closeSidebar').addEventListener('click', closeSidebar);
+    overlay.addEventListener('click', closeSidebar);
+
+    // Dots Menu Logic
+    const dotsMenu = document.getElementById('dotsMenu');
+    document.getElementById('dotsMenuBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dotsMenu.classList.toggle('show');
+    });
+    window.addEventListener('click', () => {
+      dotsMenu.classList.remove('show');
+    });
+
+    // New Deck Reset
+    function resetForm() {
+      document.getElementById('createForm').reset();
+      document.getElementById('workspace').classList.add('hidden');
+      document.getElementById('create').style.display = 'flex';
+      closeSidebar();
+    }
+  </script>
+  
+  <!-- App Logic -->
   <script src="{{ url_for('static', filename='js/layouts.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
