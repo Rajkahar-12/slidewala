@@ -25,6 +25,9 @@ body {
   overflow-x: hidden;
 }
 
+/* 🚨 THIS WAS MISSING AND CAUSED THE GLITCH 🚨 */
+.hidden { display: none !important; }
+
 /* ☁️ 3D FLAT CLOUDS (Matches your screenshot) */
 .cloud-layer {
   position: fixed;
