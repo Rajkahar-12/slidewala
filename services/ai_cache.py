@@ -1,64 +1,41 @@
-"""Redis-backed cache for generated presentations.
-Silently disables itself if Redis is unavailable."""
+"""In-memory cache for generated presentations. 
+No Redis required. Works perfectly on free tiers."""
 
 import hashlib
 import json
 import logging
 import os
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
-try:
-    import redis
-except ImportError:
-    redis = None
+CACHE_VERSION = "v1"
 
-CACHE_VERSION = "v1"  # bump when prompt/schema changes
+class MemoryCache:
+    def __init__(self):
+        self._data = {}
+        self._lock = threading.Lock()
 
-_client = None
-_client_lock = threading.Lock()
-_cache_disabled = False
-
-
-def _get_client():
-    global _client, _cache_disabled
-    if _client is not None:
-        return _client
-    if _cache_disabled:
-        return None
-
-    with _client_lock:
-        if _client is not None:
-            return _client
-        if _cache_disabled:
+    def get(self, key):
+        with self._lock:
+            item = self._data.get(key)
+            if item:
+                if time.time() < item['expires']:
+                    return item['value']
+                else:
+                    del self._data[key]
             return None
 
-        if redis is None:
-            logger.warning("redis package missing; cache disabled.")
-            _cache_disabled = True
-            return None
+    def set(self, key, value, ttl):
+        with self._lock:
+            self._data[key] = {
+                'value': value,
+                'expires': time.time() + ttl
+            }
 
-        url = (os.getenv("REDIS_URL") or os.getenv("CELERY_BROKER_URL") or "").strip()
-        if not url:
-            logger.warning("REDIS_URL not set; cache disabled.")
-            _cache_disabled = True
-            return None
-
-        try:
-            client = redis.Redis.from_url(
-                url, decode_responses=True,
-                socket_timeout=2, socket_connect_timeout=2,
-            )
-            client.ping()
-            _client = client
-            logger.info("Cache Redis connected.")
-            return client
-        except Exception as exc:
-            logger.warning("Redis unreachable (%s); cache disabled.", exc)
-            _cache_disabled = True
-            return None
-
+# Global in-memory cache
+_cache = MemoryCache()
 
 def make_cache_key(inputs):
     canonical = json.dumps(
@@ -77,25 +54,16 @@ def make_cache_key(inputs):
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f"slidewala:deck:{digest}"
 
-
 def get_cached_deck(key):
-    client = _get_client()
-    if not client:
-        return None
     try:
-        raw = client.get(key)
-        return json.loads(raw) if raw else None
+        return _cache.get(key)
     except Exception as exc:
         logger.warning("Cache get failed: %s", exc)
         return None
 
-
 def set_cached_deck(key, deck):
-    client = _get_client()
-    if not client:
-        return
     try:
         ttl = int(os.getenv("AI_CACHE_TTL") or "86400")
-        client.setex(key, ttl, json.dumps(deck, ensure_ascii=False))
+        _cache.set(key, deck, ttl)
     except Exception as exc:
         logger.warning("Cache set failed: %s", exc)
