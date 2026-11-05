@@ -1,4 +1,3 @@
-
 (() => {
   "use strict";
 
@@ -292,6 +291,54 @@
   }
 
   // ----------------------------------------
+  // POLL JOB STATUS (NEW)
+  // ----------------------------------------
+
+  async function pollJobStatus(jobId, options = {}) {
+    const intervalMs = options.intervalMs || 1500;
+    const maxWaitMs = options.maxWaitMs || 180000; // 3 minutes
+    const start = Date.now();
+
+    while (Date.now() - start < maxWaitMs) {
+      let res;
+
+      try {
+        res = await fetch(
+          `/api/status/${encodeURIComponent(jobId)}`
+        );
+      } catch {
+        // Network blip — keep polling
+        await new Promise((r) => setTimeout(r, intervalMs));
+        continue;
+      }
+
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        throw new Error(
+          data.error || `Status check failed (${res.status}).`
+        );
+      }
+
+      if (data.status === "completed" && data.result) {
+        return data.result;
+      }
+
+      if (data.status === "failed") {
+        throw new Error(
+          data.error || "Presentation generation failed."
+        );
+      }
+
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+
+    throw new Error(
+      "Generation is taking too long. Please try again."
+    );
+  }
+
+  // ----------------------------------------
   // AUDIENCE SELECTION
   // ----------------------------------------
 
@@ -370,7 +417,7 @@
   }
 
   // ----------------------------------------
-  // GENERATE PRESENTATION
+  // GENERATE PRESENTATION (FIXED — with polling)
   // ----------------------------------------
 
   if (form) {
@@ -413,6 +460,7 @@
       );
 
       try {
+        // 1. Submit job
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: {
@@ -429,17 +477,30 @@
           );
         }
 
+        // 2. Get deck — either sync (200 + result) or async (202 + job_id)
+        let deck = null;
+
+        if (data.status === "completed" && data.result) {
+          deck = data.result;
+        } else if (data.job_id) {
+          deck = await pollJobStatus(data.job_id);
+        } else {
+          throw new Error(
+            "Server did not return a job ID. Please try again."
+          );
+        }
+
         if (
-          !data ||
-          !Array.isArray(data.slides) ||
-          data.slides.length === 0
+          !deck ||
+          !Array.isArray(deck.slides) ||
+          deck.slides.length === 0
         ) {
           throw new Error(
             "The AI response was empty or incomplete. Please try again."
           );
         }
 
-        currentDeck = data;
+        currentDeck = deck;
         currentIndex = 0;
 
         renderDeck();
