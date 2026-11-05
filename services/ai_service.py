@@ -33,7 +33,7 @@ def _get_config():
             ".env file locally, or to Render environment variables, then restart."
         )
     base_url = (os.getenv("AI_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
-    default_model = os.getenv("AI_MODEL") or "google/gemini-2.5-flash"
+    default_model = os.getenv("AI_MODEL") or "openai/gpt-4o-mini"
     try:
         timeout = int(os.getenv("AI_TIMEOUT") or "60")
     except ValueError:
@@ -247,7 +247,6 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
     except requests.RequestException as exc:
         raise AIResponseError(f"Network error while contacting the AI: {exc}")
 
-    # Some OpenRouter models reject response_format; retry without it
     if response.status_code == 400 and "response_format" in (response.text or ""):
         payload.pop("response_format", None)
         try:
