@@ -230,6 +230,7 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
         ],
         "temperature": 0.65,
         "response_format": {"type": "json_object"},
+        "max_tokens": 4000,  # 🚨 FIXES THE 402 CREDIT ERROR
     }
 
     try:
@@ -246,6 +247,7 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
     except requests.RequestException as exc:
         raise AIResponseError(f"Network error while contacting the AI: {exc}")
 
+    # Some OpenRouter models reject response_format; retry without it
     if response.status_code == 400 and "response_format" in (response.text or ""):
         payload.pop("response_format", None)
         try:
@@ -260,6 +262,8 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
 
     if response.status_code == 401:
         raise AIConfigError("The AI API key was rejected. Check OPENROUTER_API_KEY.")
+    if response.status_code == 402:
+        raise AIResponseError("Your OpenRouter account is out of credits. Please add funds or use a free model.")
     if response.status_code == 429:
         raise AIResponseError("The AI provider is rate-limiting requests. Wait a moment and try again.")
     if response.status_code >= 400:
@@ -272,7 +276,18 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
 
     try:
         body = response.json()
-        content = body["choices"][0]["message"]["content"]
+        choices = body.get("choices") or []
+        
+        if not choices:
+            raise AIResponseError("OpenRouter returned an empty response. Please try again.")
+            
+        content = choices[0].get("message", {}).get("content")
+        
+        if not content or not str(content).strip():
+            raise AIResponseError("OpenRouter returned empty text. The model might be overloaded. Please try again.")
+            
+    except AIResponseError:
+        raise
     except (KeyError, IndexError, ValueError):
         raise AIResponseError("The AI service returned an unexpected response format.")
 
