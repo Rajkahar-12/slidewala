@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=9">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=10">
 </head>
 <body>
 
@@ -133,17 +133,6 @@
               <option value="pitch">Pitch / business</option>
               <option value="report">Report / project</option>
               <option value="story">Storytelling</option>
-            </select>
-          </div>
-
-          <!-- 👇 NEW AI MODEL SELECTOR 👇 -->
-          <div class="field">
-            <label for="model">AI Model</label>
-            <select id="model" name="model">
-              <option value="google/gemini-2.5-flash" selected>Gemini 2.5 Flash (Fast)</option>
-              <option value="openai/gpt-4o-mini">GPT-4o Mini (Balanced)</option>
-              <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (Smartest)</option>
-              <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B (Open Source)</option>
             </select>
           </div>
         </div>
