@@ -1,5 +1,4 @@
-
-"""SlideWala AI service with optimized GPT/Claude routing through OpenRouter."""
+"""SlideWala AI service with multi-key failover, round-robin and Redis cache."""
 
 import json
 import logging
@@ -9,7 +8,13 @@ import time
 
 import requests
 
+from services.ai_cache import (
+    get_cached_deck,
+    make_cache_key,
+    set_cached_deck,
+)
 from services.image_service import enrich_slides_with_images
+from services.key_manager import key_manager
 
 
 logger = logging.getLogger(__name__)
@@ -109,54 +114,58 @@ DEFAULT_MODELS = {
 }
 
 
+# ==================================================
+# EXCEPTIONS
+# ==================================================
+
 class AIConfigError(Exception):
-    """Raised when OpenRouter configuration is missing."""
+    """Raised when configuration is missing or invalid."""
 
 
 class AIResponseError(Exception):
-    """Raised when the AI returns invalid content."""
+    """Raised when the AI returns invalid content or a transient error."""
 
 
-def _get_config(provider):
-    """Get OpenRouter configuration for the selected model."""
+# ==================================================
+# CONFIG HELPERS
+# ==================================================
 
-    api_key = (
-        os.getenv("OPENROUTER_API_KEY")
-        or os.getenv("AI_API_KEY")
-        or ""
-    ).strip()
+def _env_int(name, default, minimum=1):
+    """Read an integer env var with safe fallback."""
+    try:
+        return max(minimum, int(os.getenv(name) or str(default)))
+    except ValueError:
+        return default
 
-    if not api_key:
-        raise AIConfigError(
-            "OpenRouter API key is missing. Add OPENROUTER_API_KEY "
-            "to your Render environment variables."
-        )
 
-    base_url = (
-        os.getenv("AI_BASE_URL")
-        or "https://openrouter.ai/api/v1"
+def _openrouter_base_url():
+    return (
+        os.getenv("AI_BASE_URL") or "https://openrouter.ai/api/v1"
     ).rstrip("/")
 
-    if provider == "chatgpt":
-        model = (
+
+def _resolve_openrouter_model(alias):
+    """Resolve which OpenRouter model to use for a given alias."""
+    if alias == "chatgpt":
+        return (
             os.getenv("OPENAI_MODEL")
             or os.getenv("AI_MODEL")
             or DEFAULT_MODELS["chatgpt"]
         )
-    else:
-        model = (
-            os.getenv("CLAUDE_MODEL")
-            or os.getenv("AI_CLAUDE_MODEL")
-            or DEFAULT_MODELS["claude"]
-        )
+    return (
+        os.getenv("CLAUDE_MODEL")
+        or os.getenv("AI_CLAUDE_MODEL")
+        or DEFAULT_MODELS["claude"]
+    )
 
-    try:
-        timeout = max(20, int(os.getenv("AI_TIMEOUT") or "90"))
-    except ValueError:
-        timeout = 90
 
-    return api_key, base_url, model, timeout
+def _resolve_gemini_model():
+    return os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
 
+
+# ==================================================
+# PROVIDER CHOICE
+# ==================================================
 
 def _choose_provider(topic, deck_type="lecture", audience="general",
                      tone="educational"):
@@ -198,6 +207,10 @@ def _choose_provider(topic, deck_type="lecture", audience="general",
 
     return "chatgpt"
 
+
+# ==================================================
+# INPUT VALIDATION
+# ==================================================
 
 def _validate_input(payload):
     """Validate user presentation settings."""
@@ -268,6 +281,10 @@ def _validate_input(payload):
         "deck_type": deck_type,
     }
 
+
+# ==================================================
+# PROMPT BUILD
+# ==================================================
 
 def _build_prompt(
     topic,
@@ -409,6 +426,10 @@ Use exactly this structure:
 }}
 """
 
+
+# ==================================================
+# RESPONSE PARSING
+# ==================================================
 
 def _extract_json(text):
     """Extract a JSON object from the model response."""
@@ -664,19 +685,22 @@ def _validate_output(data, expected_slides):
     }
 
 
-def _raise_api_error(response):
+# ==================================================
+# API ERROR HANDLING
+# ==================================================
+
+def _raise_openrouter_error(response):
     """Convert OpenRouter errors into useful application errors."""
 
     if response.status_code in (401, 403):
         raise AIConfigError(
-            "OpenRouter rejected your API key. "
-            "Check OPENROUTER_API_KEY."
+            "OpenRouter rejected this API key. "
+            "Check OPENROUTER_KEY_*."
         )
 
     if response.status_code == 429:
         raise AIResponseError(
-            "OpenRouter is rate-limiting requests. "
-            "Check your credits and try again."
+            "OpenRouter is rate-limiting this key."
         )
 
     try:
@@ -692,6 +716,37 @@ def _raise_api_error(response):
     )
 
 
+def _raise_gemini_error(response):
+    """Convert Gemini errors into useful application errors."""
+
+    if response.status_code in (401, 403):
+        raise AIConfigError(
+            "Gemini rejected this API key. "
+            "Check GEMINI_KEY_*."
+        )
+
+    if response.status_code == 429:
+        raise AIResponseError(
+            "Gemini is rate-limiting this key."
+        )
+
+    try:
+        error_data = response.json()
+        detail = error_data.get("error", {}).get("message", "")
+
+    except (ValueError, AttributeError):
+        detail = (response.text or "")[:250]
+
+    raise AIResponseError(
+        f"Gemini error ({response.status_code}): "
+        f"{detail or 'Unknown error'}"
+    )
+
+
+# ==================================================
+# TOKEN BUDGET
+# ==================================================
+
 def _get_max_tokens(slide_count, content_length):
     """Set enough output tokens without excessively large responses."""
 
@@ -706,34 +761,31 @@ def _get_max_tokens(slide_count, content_length):
     )
 
 
-def _call_ai(
-    topic,
-    audience,
-    tone,
-    theme,
-    slide_count,
-    provider,
-    content_length="medium",
-    deck_type="lecture",
-    strict=False,
-):
-    """Call the selected model through OpenRouter."""
+# ==================================================
+# PROVIDER CALLS (single key each)
+# ==================================================
 
-    api_key, base_url, model, timeout = _get_config(provider)
+def _call_openrouter_with_key(api_key, model_alias, inputs, strict):
+    """Call OpenRouter with a single API key."""
+
+    base_url = _openrouter_base_url()
+    model = _resolve_openrouter_model(model_alias)
+    timeout_read = _env_int("AI_KEY_TIMEOUT", 60)
+    timeout_connect = _env_int("AI_CONNECT_TIMEOUT", 5)
 
     prompt = _build_prompt(
-        topic,
-        audience,
-        tone,
-        theme,
-        slide_count,
-        content_length,
-        deck_type,
+        inputs["topic"],
+        inputs["audience"],
+        inputs["tone"],
+        inputs["theme"],
+        inputs["slides"],
+        inputs["content_length"],
+        inputs["deck_type"],
     )
 
     if strict:
         prompt += (
-            f"\n\nFINAL CHECK: Return exactly {slide_count} slides. "
+            f"\n\nFINAL CHECK: Return exactly {inputs['slides']} slides. "
             'The final title must be exactly "Thank You". '
             "Return valid JSON only. Ensure every slide has a title, "
             "useful bullets and speaker notes. Do not invent facts."
@@ -768,8 +820,8 @@ def _call_ai(
         ],
         "temperature": 0.55,
         "max_tokens": _get_max_tokens(
-            slide_count,
-            content_length,
+            inputs["slides"],
+            inputs["content_length"],
         ),
         "response_format": {
             "type": "json_object",
@@ -783,7 +835,7 @@ def _call_ai(
             url,
             headers=headers,
             json=request_body,
-            timeout=(10, timeout),
+            timeout=(timeout_connect, timeout_read),
         )
 
         if (
@@ -796,11 +848,11 @@ def _call_ai(
                 url,
                 headers=headers,
                 json=request_body,
-                timeout=(10, timeout),
+                timeout=(timeout_connect, timeout_read),
             )
 
         if not response.ok:
-            _raise_api_error(response)
+            _raise_openrouter_error(response)
 
         try:
             body = response.json()
@@ -812,12 +864,12 @@ def _call_ai(
 
     except requests.Timeout:
         raise AIResponseError(
-            "The AI service took too long to respond. Please try again."
+            "OpenRouter took too long to respond."
         )
 
     except requests.ConnectionError:
         raise AIResponseError(
-            "Could not reach OpenRouter. Check your connection."
+            "Could not reach OpenRouter."
         )
 
     except requests.RequestException as exc:
@@ -843,50 +895,255 @@ def _call_ai(
     return _extract_json(content)
 
 
+def _call_gemini_with_key(api_key, inputs, strict):
+    """Call Google Gemini with a single API key."""
+
+    model = _resolve_gemini_model()
+    timeout_read = _env_int("AI_KEY_TIMEOUT", 60)
+    timeout_connect = _env_int("AI_CONNECT_TIMEOUT", 5)
+
+    prompt = _build_prompt(
+        inputs["topic"],
+        inputs["audience"],
+        inputs["tone"],
+        inputs["theme"],
+        inputs["slides"],
+        inputs["content_length"],
+        inputs["deck_type"],
+    )
+
+    if strict:
+        prompt += (
+            f"\n\nFINAL CHECK: Return exactly {inputs['slides']} slides. "
+            'The final title must be exactly "Thank You". '
+            "Return valid JSON only. Ensure every slide has a title, "
+            "useful bullets and speaker notes. Do not invent facts."
+        )
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={api_key}"
+    )
+
+    request_body = {
+        "systemInstruction": {
+            "parts": [
+                {
+                    "text": (
+                        "You are an expert presentation researcher and "
+                        "PowerPoint designer. Create informative, accurate, "
+                        "well-structured presentations. Return one valid "
+                        "JSON object and nothing else."
+                    )
+                }
+            ]
+        },
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.55,
+            "maxOutputTokens": _get_max_tokens(
+                inputs["slides"],
+                inputs["content_length"],
+            ),
+            "responseMimeType": "application/json",
+        },
+    }
+
+    try:
+        response = requests.post(
+            url,
+            json=request_body,
+            headers={"Content-Type": "application/json"},
+            timeout=(timeout_connect, timeout_read),
+        )
+
+        if not response.ok:
+            _raise_gemini_error(response)
+
+        try:
+            body = response.json()
+
+        except ValueError:
+            raise AIResponseError(
+                "Gemini returned an invalid response."
+            )
+
+    except requests.Timeout:
+        raise AIResponseError(
+            "Gemini took too long to respond."
+        )
+
+    except requests.ConnectionError:
+        raise AIResponseError(
+            "Could not reach Gemini."
+        )
+
+    except requests.RequestException as exc:
+        raise AIResponseError(
+            f"Network error while contacting Gemini: {exc}"
+        )
+
+    try:
+        content = (
+            body["candidates"][0]["content"]["parts"][0]["text"]
+        )
+
+    except (KeyError, IndexError, TypeError):
+        raise AIResponseError(
+            "Gemini returned an unexpected response format."
+        )
+
+    return _extract_json(content)
+
+
+# ==================================================
+# FAILOVER WRAPPER
+# ==================================================
+
+def _call_with_failover(api_provider, model_alias, inputs, strict):
+    """Try all keys for the provider in round-robin order."""
+
+    if api_provider == "openrouter":
+        keys = key_manager.openrouter_keys_rotated()
+
+        if not keys:
+            raise AIConfigError(
+                "No OpenRouter keys. Set OPENROUTER_KEY_1 in .env."
+            )
+
+        def caller(k):
+            return _call_openrouter_with_key(
+                k, model_alias, inputs, strict
+            )
+
+    elif api_provider == "gemini":
+        keys = key_manager.gemini_keys_rotated()
+
+        if not keys:
+            raise AIConfigError(
+                "No Gemini keys. Set GEMINI_KEY_1 in .env."
+            )
+
+        def caller(k):
+            return _call_gemini_with_key(k, inputs, strict)
+
+    else:
+        raise AIConfigError(f"Unknown provider: {api_provider}")
+
+    last_error = None
+
+    for idx, key in enumerate(keys, start=1):
+        try:
+            logger.info(
+                "%s attempt %d/%d",
+                api_provider,
+                idx,
+                len(keys),
+            )
+
+            return caller(key)
+
+        except AIConfigError:
+            last_error = AIResponseError(
+                f"{api_provider} key #{idx} invalid"
+            )
+
+            logger.warning(
+                "%s key #%d invalid (config).",
+                api_provider,
+                idx,
+            )
+
+            continue
+
+        except AIResponseError as exc:
+            last_error = exc
+
+            logger.warning(
+                "%s key #%d failed: %s",
+                api_provider,
+                idx,
+                exc,
+            )
+
+            continue
+
+    raise last_error or AIResponseError(
+        f"All {api_provider} keys failed."
+    )
+
+
+# ==================================================
+# PUBLIC ENTRY POINT
+# ==================================================
+
 def generate_presentation(payload):
-    """Generate a deck with automatic model fallback and image enrichment."""
+    """Generate a deck with multi-key failover and Redis caching."""
 
     total_start = time.perf_counter()
 
     inputs = _validate_input(payload)
 
-    preferred_provider = _choose_provider(
+    # 1. Cache check
+    cache_key = make_cache_key(inputs)
+    cached = get_cached_deck(cache_key)
+
+    if cached:
+        logger.info(
+            "SlideWala cache HIT for '%s' (%.2fs).",
+            inputs["topic"],
+            time.perf_counter() - total_start,
+        )
+
+        return cached
+
+    logger.info(
+        "SlideWala cache MISS for '%s'.",
+        inputs["topic"],
+    )
+
+    # 2. Attempt chain
+    preferred = _choose_provider(
         inputs["topic"],
         inputs["deck_type"],
         inputs["audience"],
         inputs["tone"],
     )
 
-    other_provider = (
+    other = (
         "claude"
-        if preferred_provider == "chatgpt"
+        if preferred == "chatgpt"
         else "chatgpt"
     )
 
-    providers = [
-        (preferred_provider, False),
-        (other_provider, True),
+    attempts = [
+        ("openrouter", preferred, False),
+        ("openrouter", other, True),
     ]
+
+    if key_manager.has_gemini():
+        attempts.append(("gemini", None, False))
 
     last_error = None
     deck = None
 
-    for attempt_number, (provider, strict) in enumerate(
-        providers,
+    for attempt_number, (provider, model_alias, strict) in enumerate(
+        attempts,
         start=1,
     ):
         attempt_start = time.perf_counter()
 
         try:
-            raw = _call_ai(
-                topic=inputs["topic"],
-                audience=inputs["audience"],
-                tone=inputs["tone"],
-                theme=inputs["theme"],
-                slide_count=inputs["slides"],
-                content_length=inputs["content_length"],
-                deck_type=inputs["deck_type"],
-                provider=provider,
+            raw = _call_with_failover(
+                api_provider=provider,
+                model_alias=model_alias,
+                inputs=inputs,
                 strict=strict,
             )
 
@@ -896,9 +1153,10 @@ def generate_presentation(payload):
             )
 
             logger.info(
-                "SlideWala AI attempt %s (%s) completed in %.2f seconds.",
+                "SlideWala attempt %d (%s/%s) succeeded in %.2fs.",
                 attempt_number,
                 provider,
+                model_alias or "-",
                 time.perf_counter() - attempt_start,
             )
 
@@ -911,29 +1169,32 @@ def generate_presentation(payload):
             last_error = exc
 
             logger.warning(
-                "SlideWala AI attempt %s (%s) failed after %.2f seconds: %s",
+                "SlideWala attempt %d (%s/%s) failed after %.2fs: %s",
                 attempt_number,
                 provider,
+                model_alias or "-",
                 time.perf_counter() - attempt_start,
-                str(exc),
+                exc,
             )
 
     if deck is None:
         logger.error(
-            "SlideWala generation failed after %.2f seconds.",
+            "SlideWala generation exhausted all attempts in %.2fs.",
             time.perf_counter() - total_start,
         )
 
         raise last_error or AIResponseError(
-            "Both AI models were unable to generate a presentation."
+            "All AI providers were unable to generate a presentation."
         )
 
+    # 3. Attach user-selected settings to the deck
     deck["audience"] = inputs["audience"]
     deck["tone"] = inputs["tone"]
     deck["theme"] = inputs["theme"]
     deck["content_length"] = inputs["content_length"]
     deck["deck_type"] = inputs["deck_type"]
 
+    # 4. Image enrichment
     if os.getenv(
         "ENABLE_WIKIMEDIA_IMAGES", "true"
     ).lower() in ("true", "1", "yes", "on"):
@@ -944,13 +1205,13 @@ def generate_presentation(payload):
             enrich_slides_with_images(deck["slides"])
 
             logger.info(
-                "SlideWala image enrichment completed in %.2f seconds.",
+                "SlideWala image enrichment in %.2fs.",
                 time.perf_counter() - image_start,
             )
 
         except Exception:
             logger.exception(
-                "SlideWala image enrichment failed; continuing without images."
+                "Image enrichment failed; continuing without images."
             )
 
     else:
@@ -958,8 +1219,11 @@ def generate_presentation(payload):
             "SlideWala image enrichment is disabled."
         )
 
+    # 5. Save to cache
+    set_cached_deck(cache_key, deck)
+
     logger.info(
-        "SlideWala total generation time: %.2f seconds.",
+        "SlideWala total time: %.2fs.",
         time.perf_counter() - total_start,
     )
 
