@@ -1,12 +1,12 @@
 (() => {
   "use strict";
 
+  // Safe element getters
   const form = document.getElementById("createForm");
   const topicInput = document.getElementById("topic");
   const topicCount = document.getElementById("topicCount");
   const audienceSelect = document.getElementById("audience");
   const toneSelect = document.getElementById("tone");
-  const modelSelect = document.getElementById("model"); // 👈 NEW
   const themeSelect = document.getElementById("theme");
   const slideCountGroup = document.getElementById("slideCount");
   const contentLengthGroup = document.getElementById("contentLength");
@@ -33,6 +33,9 @@
   const loadingTitle = document.getElementById("loadingTitle");
   const loadingMessage = document.getElementById("loadingMessage");
   
+  // These might be null if the user is on a different page
+  const createSection = document.getElementById("create");
+
   let currentDeck = null;
   let currentIndex = 0;
   let selectedSlideCount = 10;
@@ -46,6 +49,7 @@
   };
 
   function showToast(message, kind = "") {
+    if (!toastEl) return;
     toastEl.textContent = message;
     toastEl.className = "toast show " + kind;
     clearTimeout(showToast._timer);
@@ -54,13 +58,13 @@
 
   function setBusy(on, title, message) {
     isBusy = on;
-    loadingOverlay.classList.toggle("hidden", !on);
+    if (loadingOverlay) loadingOverlay.classList.toggle("hidden", !on);
     if (on) {
-      loadingTitle.textContent = title || "Designing your presentation";
-      loadingMessage.textContent = message || "Writing the story and finding relevant visuals…";
-      generateBtn.disabled = true;
+      if (loadingTitle) loadingTitle.textContent = title || "Designing your presentation";
+      if (loadingMessage) loadingMessage.textContent = message || "Writing the story and finding relevant visuals…";
+      if (generateBtn) generateBtn.disabled = true;
     } else {
-      generateBtn.disabled = false;
+      if (generateBtn) generateBtn.disabled = false;
     }
   }
 
@@ -116,53 +120,64 @@
     });
   }
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (isBusy) return;
-    const topic = topicInput.value.trim();
-    if (!topic) { showToast("Please enter a presentation topic.", "error"); topicInput.focus(); return; }
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (isBusy) return;
+      
+      const topic = topicInput ? topicInput.value.trim() : "";
+      if (!topic) { 
+        showToast("Please enter a presentation topic.", "error"); 
+        if (topicInput) topicInput.focus(); 
+        return; 
+      }
 
-    setBusy(true, "Designing your presentation", "Writing the story and finding relevant visuals…");
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          topic, 
-          audience: audienceSelect.value, 
-          tone: toneSelect.value, 
-          theme: themeSelect.value, 
-          slides: selectedSlideCount,
-          model: modelSelect.value // 👈 SENDING MODEL TO BACKEND
-        })
-      });
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
-      if (!data || !Array.isArray(data.slides) || data.slides.length === 0) throw new Error("The AI response was empty or incomplete. Please try again.");
+      setBusy(true, "Designing your presentation", "Writing the story and finding relevant visuals…");
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            topic, 
+            audience: audienceSelect ? audienceSelect.value : "general", 
+            tone: toneSelect ? toneSelect.value : "educational", 
+            theme: themeSelect ? themeSelect.value : "aurora", 
+            slides: selectedSlideCount
+            // Note: model is intentionally omitted, backend will use .env default
+          })
+        });
+        const data = await safeJson(res);
+        if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
+        if (!data || !Array.isArray(data.slides) || data.slides.length === 0) throw new Error("The AI response was empty or incomplete. Please try again.");
 
-      currentDeck = data; 
-      currentIndex = 0;
-      renderDeck();
-      workspace.classList.remove("hidden");
-      document.getElementById("create").style.display = "none";
-      showToast("Presentation ready.", "success");
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err) {
-      showToast(err.message || "Something went wrong. Please try again.", "error");
-    } finally { 
-      setBusy(false); 
-    }
-  });
+        currentDeck = data; 
+        currentIndex = 0;
+        renderDeck();
+        
+        if (workspace) workspace.classList.remove("hidden");
+        if (createSection) createSection.style.display = "none";
+        
+        showToast("Presentation ready.", "success");
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        showToast(err.message || "Something went wrong. Please try again.", "error");
+      } finally { 
+        setBusy(false); 
+      }
+    });
+  }
 
   function renderDeck() {
-    deckTitleEl.textContent = currentDeck.title || "Your presentation";
-    deckSubtitleEl.textContent = currentDeck.subtitle || "";
-    thumbCount.textContent = String(currentDeck.slides.length);
+    if (!currentDeck) return;
+    if (deckTitleEl) deckTitleEl.textContent = currentDeck.title || "Your presentation";
+    if (deckSubtitleEl) deckSubtitleEl.textContent = currentDeck.subtitle || "";
+    if (thumbCount) thumbCount.textContent = String(currentDeck.slides.length);
     renderThumbnails();
     renderSlide(0);
   }
 
   function renderThumbnails() {
+    if (!thumbnailsEl || !currentDeck) return;
     thumbnailsEl.innerHTML = "";
     currentDeck.slides.forEach((slide, index) => {
       const btn = document.createElement("button");
@@ -175,7 +190,7 @@
   }
 
   function renderSlide(index) {
-    if (!currentDeck) return;
+    if (!currentDeck || !stage) return;
     const total = currentDeck.slides.length;
     currentIndex = Math.max(0, Math.min(index, total - 1));
     const slide = currentDeck.slides[currentIndex];
@@ -183,12 +198,15 @@
 
     stage.style.background = theme.bg;
     stage.innerHTML = buildSlideHtml(slide, currentIndex, total, theme);
-    slideCounter.textContent = `${currentIndex + 1} / ${total}`;
-    speakerNotesEl.textContent = slide.speaker_notes || "No speaker notes for this slide.";
+    
+    if (slideCounter) slideCounter.textContent = `${currentIndex + 1} / ${total}`;
+    if (speakerNotesEl) speakerNotesEl.textContent = slide.speaker_notes || "No speaker notes for this slide.";
 
-    thumbnailsEl.querySelectorAll(".thumb").forEach((el, i) => { el.classList.toggle("active", i === currentIndex); });
-    prevBtn.disabled = currentIndex === 0;
-    nextBtn.disabled = currentIndex === total - 1;
+    if (thumbnailsEl) {
+      thumbnailsEl.querySelectorAll(".thumb").forEach((el, i) => { el.classList.toggle("active", i === currentIndex); });
+    }
+    if (prevBtn) prevBtn.disabled = currentIndex === 0;
+    if (nextBtn) nextBtn.disabled = currentIndex === total - 1;
   }
 
   function buildSlideHtml(slide, index, total, theme) {
@@ -222,8 +240,8 @@
       </div>`;
   }
 
-  prevBtn.addEventListener("click", () => renderSlide(currentIndex - 1));
-  nextBtn.addEventListener("click", () => renderSlide(currentIndex + 1));
+  if (prevBtn) prevBtn.addEventListener("click", () => renderSlide(currentIndex - 1));
+  if (nextBtn) nextBtn.addEventListener("click", () => renderSlide(currentIndex + 1));
   
   document.addEventListener("keydown", (event) => {
     if (!currentDeck) return;
@@ -245,62 +263,70 @@
     return lines.join("\n").trim();
   }
 
-  copyBtn.addEventListener("click", async () => {
-    if (!currentDeck) return;
-    const text = buildOutlineText(currentDeck);
-    let copied = false;
-    if (navigator.clipboard && window.isSecureContext) { 
-      try { await navigator.clipboard.writeText(text); copied = true; } catch {} 
-    }
-    if (!copied) {
-      const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); copied = true; } catch {}
-      document.body.removeChild(ta);
-    }
-    if (copied) {
-      const original = copyBtn.textContent; copyBtn.textContent = "Copied!"; copyBtn.disabled = true;
-      showToast("Outline copied to clipboard.", "success");
-      setTimeout(() => { copyBtn.textContent = original; copyBtn.disabled = false; }, 1600);
-    } else { 
-      showToast("Could not copy. Your browser may block clipboard access.", "error"); 
-    }
-  });
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      if (!currentDeck) return;
+      const text = buildOutlineText(currentDeck);
+      let copied = false;
+      if (navigator.clipboard && window.isSecureContext) { 
+        try { await navigator.clipboard.writeText(text); copied = true; } catch {} 
+      }
+      if (!copied) {
+        const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); copied = true; } catch {}
+        document.body.removeChild(ta);
+      }
+      if (copied) {
+        const original = copyBtn.textContent; copyBtn.textContent = "Copied!"; copyBtn.disabled = true;
+        showToast("Outline copied to clipboard.", "success");
+        setTimeout(() => { copyBtn.textContent = original; copyBtn.disabled = false; }, 1600);
+      } else { 
+        showToast("Could not copy. Your browser may block clipboard access.", "error"); 
+      }
+    });
+  }
 
-  regenerateBtn.addEventListener("click", () => { 
-    document.getElementById("create").style.display = "flex"; 
-    workspace.classList.add("hidden");
-    window.scrollTo({ top: 0, behavior: 'smooth' }); 
-    topicInput.focus(); 
-  });
+  if (regenerateBtn) {
+    regenerateBtn.addEventListener("click", () => { 
+      if (createSection) createSection.style.display = "flex"; 
+      if (workspace) workspace.classList.add("hidden");
+      window.scrollTo({ top: 0, behavior: 'smooth' }); 
+      if (topicInput) topicInput.focus(); 
+    });
+  }
 
-  downloadPptxBtn.addEventListener("click", async () => {
-    if (!currentDeck || isBusy) return;
-    setBusy(true, "Building PowerPoint", "Assembling real slides with python-pptx…");
-    try { 
-      await downloadBlob("/api/export/pptx", currentDeck, "slidewala-presentation.pptx"); 
-      showToast("PPTX downloaded.", "success"); 
-    }
-    catch (err) { 
-      showToast(err.message || "Could not download PPTX.", "error"); 
-    }
-    finally { 
-      setBusy(false); 
-    }
-  });
+  if (downloadPptxBtn) {
+    downloadPptxBtn.addEventListener("click", async () => {
+      if (!currentDeck || isBusy) return;
+      setBusy(true, "Building PowerPoint", "Assembling real slides with python-pptx…");
+      try { 
+        await downloadBlob("/api/export/pptx", currentDeck, "slidewala-presentation.pptx"); 
+        showToast("PPTX downloaded.", "success"); 
+      }
+      catch (err) { 
+        showToast(err.message || "Could not download PPTX.", "error"); 
+      }
+      finally { 
+        setBusy(false); 
+      }
+    });
+  }
 
-  downloadPdfBtn.addEventListener("click", async () => {
-    if (!currentDeck || isBusy) return;
-    setBusy(true, "Building PDF", "Rendering slides and notes to PDF…");
-    try { 
-      await downloadBlob("/api/export/pdf", currentDeck, "slidewala-presentation.pdf"); 
-      showToast("PDF downloaded.", "success"); 
-    }
-    catch (err) { 
-      showToast(err.message || "Could not download PDF.", "error"); 
-    }
-    finally { 
-      setBusy(false); 
-    }
-  });
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener("click", async () => {
+      if (!currentDeck || isBusy) return;
+      setBusy(true, "Building PDF", "Rendering slides and notes to PDF…");
+      try { 
+        await downloadBlob("/api/export/pdf", currentDeck, "slidewala-presentation.pdf"); 
+        showToast("PDF downloaded.", "success"); 
+      }
+      catch (err) { 
+        showToast(err.message || "Could not download PDF.", "error"); 
+      }
+      finally { 
+        setBusy(false); 
+      }
+    });
+  }
 })();
