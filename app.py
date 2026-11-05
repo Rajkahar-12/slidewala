@@ -1,4 +1,5 @@
-"""SlideWala - optimized Flask application."""
+
+"""SlideWala - Flask application with background AI generation."""
 
 import io
 import os
@@ -11,13 +12,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
 
-
 BASE_DIR = Path(__file__).resolve().parent
 
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 load_dotenv(BASE_DIR / ".env")
+
+from celery_worker import celery
+from tasks import generate_presentation_task
 
 
 app = Flask(__name__)
@@ -31,19 +34,25 @@ app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 
 
-# Simple in-memory rate limit for AI generation (protects your API key).
-# Change these two numbers if you want more or fewer presentations.
+# --------------------------------------------------
+# RATE LIMITING
+# --------------------------------------------------
+
 RATE_LIMIT_COUNT = int(os.getenv("RATE_LIMIT_COUNT", 10))
-RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", 3600))  # seconds
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", 3600))
 
 _request_log = defaultdict(deque)
 
 
 def too_many_requests():
-    """Return True if this visitor made too many generate requests."""
+    """Limit presentation requests from each visitor."""
 
     forwarded = request.headers.get("X-Forwarded-For", "")
-    ip = (forwarded.split(",")[0].strip() or request.remote_addr or "unknown")
+    ip = (
+        forwarded.split(",")[0].strip()
+        or request.remote_addr
+        or "unknown"
+    )
 
     now = time.time()
     hits = _request_log[ip]
@@ -58,6 +67,10 @@ def too_many_requests():
     return False
 
 
+# --------------------------------------------------
+# HELPERS
+# --------------------------------------------------
+
 def safe_filename(title):
     """Create a clean filename from the presentation title."""
 
@@ -70,14 +83,22 @@ def safe_filename(title):
     return (name or "presentation").lower()
 
 
+# --------------------------------------------------
+# HOME
+# --------------------------------------------------
+
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
+# --------------------------------------------------
+# HEALTH CHECK
+# --------------------------------------------------
+
 @app.get("/health")
 def health():
-    """Lightweight health check for Render and uptime monitoring."""
+    """Lightweight health check."""
 
     return jsonify({
         "status": "ok",
@@ -85,17 +106,19 @@ def health():
         "ai_configured": bool(
             os.getenv("OPENROUTER_API_KEY")
             or os.getenv("AI_API_KEY")
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GROQ_API_KEY")
         ),
     })
 
 
+# --------------------------------------------------
+# BACKGROUND PRESENTATION GENERATION
+# --------------------------------------------------
+
 @app.post("/api/generate")
 def api_generate():
-    from services.ai_service import (
-        AIConfigError,
-        AIResponseError,
-        generate_presentation,
-    )
+    """Submit a presentation generation job."""
 
     payload = request.get_json(silent=True)
 
@@ -110,25 +133,90 @@ def api_generate():
         ), 429
 
     try:
-        deck = generate_presentation(payload)
-        return jsonify(deck)
+        task = generate_presentation_task.apply_async(
+            args=[payload]
+        )
 
-    except AIConfigError as exc:
-        return jsonify(error=str(exc)), 503
-
-    except AIResponseError as exc:
-        return jsonify(error=str(exc)), 502
-
-    except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return jsonify({
+            "job_id": task.id,
+            "status": "queued",
+            "message": "Your presentation is being prepared.",
+        }), 202
 
     except Exception:
-        app.logger.exception("Presentation generation failed")
+        app.logger.exception(
+            "Could not submit presentation generation job"
+        )
 
         return jsonify(
-            error="Presentation generation failed. Please try again."
-        ), 500
+            error="The generation service is temporarily unavailable. Please try again."
+        ), 503
 
+
+# --------------------------------------------------
+# PRESENTATION JOB STATUS
+# --------------------------------------------------
+
+@app.get("/api/status/<job_id>")
+def api_job_status(job_id):
+    """Check the status of a background generation job."""
+
+    if not re.fullmatch(r"[a-fA-F0-9-]{16,64}", job_id):
+        return jsonify(
+            error="Invalid job ID."
+        ), 400
+
+    try:
+        task = celery.AsyncResult(job_id)
+        state = task.state
+
+        if state == "SUCCESS":
+            return jsonify({
+                "status": "completed",
+                "result": task.result,
+            })
+
+        if state == "FAILURE":
+            app.logger.error(
+                "Presentation job %s failed: %s",
+                job_id,
+                task.result,
+            )
+
+            return jsonify({
+                "status": "failed",
+                "error": "Presentation generation failed. Please try again.",
+            })
+
+        if state == "REVOKED":
+            return jsonify({
+                "status": "failed",
+                "error": "This presentation job was cancelled.",
+            })
+
+        if state == "STARTED":
+            return jsonify({
+                "status": "processing",
+            })
+
+        return jsonify({
+            "status": "queued",
+        })
+
+    except Exception:
+        app.logger.exception(
+            "Could not retrieve job status: %s",
+            job_id,
+        )
+
+        return jsonify(
+            error="Could not check presentation status."
+        ), 503
+
+
+# --------------------------------------------------
+# IMAGE PROXY
+# --------------------------------------------------
 
 @app.get("/api/image")
 def api_image():
@@ -137,13 +225,17 @@ def api_image():
     url = (request.args.get("url") or "").strip()
 
     if not url:
-        return jsonify(error="Missing image URL."), 400
+        return jsonify(
+            error="Missing image URL."
+        ), 400
 
     try:
         result = proxy_image(url)
 
         if not result:
-            return jsonify(error="Image is unavailable."), 404
+            return jsonify(
+                error="Image is unavailable."
+            ), 404
 
         image_data, content_type = result
 
@@ -164,6 +256,10 @@ def api_image():
         ), 502
 
 
+# --------------------------------------------------
+# POWERPOINT EXPORT
+# --------------------------------------------------
+
 @app.post("/api/export/pptx")
 def export_pptx():
     from services.pptx_service import build_pptx
@@ -171,7 +267,9 @@ def export_pptx():
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
-        return jsonify(error="Invalid presentation data."), 400
+        return jsonify(
+            error="Invalid presentation data."
+        ), 400
 
     try:
         buffer = build_pptx(payload)
@@ -199,6 +297,10 @@ def export_pptx():
         ), 500
 
 
+# --------------------------------------------------
+# PDF EXPORT
+# --------------------------------------------------
+
 @app.post("/api/export/pdf")
 def export_pdf():
     from services.pdf_service import build_pdf
@@ -206,7 +308,9 @@ def export_pdf():
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
-        return jsonify(error="Invalid presentation data."), 400
+        return jsonify(
+            error="Invalid presentation data."
+        ), 400
 
     try:
         buffer = build_pdf(payload)
@@ -230,6 +334,10 @@ def export_pdf():
             error="Could not create the PDF file."
         ), 500
 
+
+# --------------------------------------------------
+# LOCAL DEVELOPMENT
+# --------------------------------------------------
 
 if __name__ == "__main__":
     app.run(
