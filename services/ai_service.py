@@ -1,230 +1,52 @@
-"""SlideWala AI service with multi-key failover, round-robin and Redis cache."""
-
+"""OpenRouter / OpenAI-compatible AI generation with validation and retry."""
 import json
-import logging
 import os
 import re
-import time
 
 import requests
 
-from services.ai_cache import (
-    get_cached_deck,
-    make_cache_key,
-    set_cached_deck,
-)
 from services.image_service import enrich_slides_with_images
-from services.key_manager import key_manager
-
-
-logger = logging.getLogger(__name__)
 
 ALLOWED_SLIDE_COUNTS = {5, 8, 10, 12}
-
-ALLOWED_AUDIENCES = {
-    "student", "teacher", "professional", "general"
-}
-
-ALLOWED_TONES = {
-    "educational", "formal", "persuasive", "casual", "inspiring"
-}
-
-ALLOWED_CONTENT_LENGTHS = {
-    "short", "medium", "detailed"
-}
-
-ALLOWED_DECK_TYPES = {
-    "lecture", "pitch", "report", "story"
-}
-
-CONTENT_LENGTH_GUIDES = {
-    "short": (
-        "Write 2 to 3 concise but meaningful bullet points per slide. "
-        "Use approximately 10 to 18 words per point. "
-        "Keep the main information, not unnecessary explanations."
-    ),
-    "medium": (
-        "Write 3 to 4 informative bullet points per slide. "
-        "Use approximately 18 to 25 words per point. "
-        "Explain the important ideas clearly and include useful examples "
-        "where appropriate."
-    ),
-    "detailed": (
-        "Write 4 to 5 informative bullet points per slide. "
-        "Use approximately 22 to 35 words per point when the topic "
-        "requires it. Explain concepts, include important details, "
-        "practical examples, applications or evidence. "
-        "Make the presentation genuinely informative, not repetitive."
-    ),
-}
-
-DECK_TYPE_GUIDES = {
-    "lecture": (
-        "Create a structured educational lecture. Start with an engaging "
-        "introduction and learning objectives. Explain the main concepts "
-        "in a logical order. Include definitions, examples, applications, "
-        "important facts and a useful recap."
-    ),
-    "pitch": (
-        "Create a convincing business pitch. Explain the problem, target "
-        "audience, proposed solution, how it works, value proposition, "
-        "competitive advantages, business model where relevant, risks, "
-        "roadmap and a clear call to action."
-    ),
-    "report": (
-        "Create a professional report presentation. Cover background, "
-        "objectives, methodology, important findings, analysis, evidence, "
-        "challenges, conclusions and practical recommendations."
-    ),
-    "story": (
-        "Create an engaging storytelling presentation. Establish a strong "
-        "hook, setting and central challenge. Develop the story through "
-        "meaningful events, turning points, consequences and resolution. "
-        "Finish with a memorable lesson."
-    ),
-}
-
-THEME_DESCRIPTIONS = {
-    "aurora": "soft purple, elegant gradients and light backgrounds",
-    "midnight": "premium dark backgrounds with violet accents",
-    "minimal": "clean white backgrounds and simple typography",
-    "corporate": "professional blue, white and business styling",
-    "ocean": "fresh teal, aqua and ocean-inspired colours",
-    "sunset": "warm orange, peach and sunset-inspired colours",
-    "forest": "natural green, earthy and calm colours",
-    "rose": "soft pink, rose and elegant styling",
-    "lavender": "light violet, lavender and elegant styling",
-    "graphite": "modern dark grey, silver and neutral styling",
-    "sand": "warm beige, cream and natural neutral colours",
-    "cyberpunk": "dark futuristic backgrounds with neon pink accents",
-}
-
-DATA_LAYOUTS = {"stats", "two-column", "timeline", "quote"}
-
+ALLOWED_AUDIENCES = {"student", "teacher", "professional", "general"}
+ALLOWED_TONES = {"educational", "formal", "persuasive", "casual", "inspiring"}
+ALLOWED_THEMES = {"midnight", "aurora", "minimal", "corporate"}
 ALLOWED_LAYOUTS = {
-    "title", "intro", "content", "image-left",
-    "image-right", "full-image", "comparison",
-    "conclusion", "references", "section",
-    "stats", "two-column", "timeline", "quote",
+    "title", "intro", "content", "image-left", "image-right",
+    "full-image", "comparison", "conclusion", "references",
 }
 
-DEFAULT_MODELS = {
-    "chatgpt": "openai/gpt-4o-mini",
-    "claude": "anthropic/claude-sonnet-4.6",
-}
-
-
-# ==================================================
-# EXCEPTIONS
-# ==================================================
 
 class AIConfigError(Exception):
-    """Raised when configuration is missing or invalid."""
+    """Raised when the server has no AI key configured."""
 
 
 class AIResponseError(Exception):
-    """Raised when the AI returns invalid content or a transient error."""
+    """Raised when the AI returns invalid or incomplete content."""
 
 
-# ==================================================
-# CONFIG HELPERS
-# ==================================================
-
-def _env_int(name, default, minimum=1):
-    """Read an integer env var with safe fallback."""
-    try:
-        return max(minimum, int(os.getenv(name) or str(default)))
-    except ValueError:
-        return default
-
-
-def _openrouter_base_url():
-    return (
-        os.getenv("AI_BASE_URL") or "https://openrouter.ai/api/v1"
-    ).rstrip("/")
-
-
-def _resolve_openrouter_model(alias):
-    """Resolve which OpenRouter model to use for a given alias."""
-    if alias == "chatgpt":
-        return (
-            os.getenv("OPENAI_MODEL")
-            or os.getenv("AI_MODEL")
-            or DEFAULT_MODELS["chatgpt"]
+def _get_config():
+    key = (os.getenv("OPENROUTER_API_KEY") or os.getenv("AI_API_KEY") or "").strip()
+    if not key:
+        raise AIConfigError(
+            "AI is not configured. Add OPENROUTER_API_KEY (or AI_API_KEY) to your "
+            ".env file locally, or to Render environment variables, then restart."
         )
-    return (
-        os.getenv("CLAUDE_MODEL")
-        or os.getenv("AI_CLAUDE_MODEL")
-        or DEFAULT_MODELS["claude"]
-    )
+    base_url = (os.getenv("AI_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
+    default_model = os.getenv("AI_MODEL") or "google/gemini-2.5-flash"
+    try:
+        timeout = int(os.getenv("AI_TIMEOUT") or "60")
+    except ValueError:
+        timeout = 60
+    return key, base_url, default_model, timeout
 
 
-def _resolve_gemini_model():
-    # Yahan humne 1.5-flash ko hata kar 2.0-flash kar diya hai
-    return os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
-
-
-# ==================================================
-# PROVIDER CHOICE
-# ==================================================
-
-def _choose_provider(topic, deck_type="lecture", audience="general",
-                     tone="educational"):
-    """Choose a suitable model using the topic and presentation purpose."""
-
-    text = f"{topic} {deck_type} {audience} {tone}".lower()
-
-    claude_keywords = {
-        "business", "finance", "marketing", "management",
-        "leadership", "strategy", "branding", "storytelling",
-        "creative writing", "literature", "history",
-        "philosophy", "culture", "design thinking",
-        "communication", "advertising", "entrepreneurship",
-    }
-
-    gpt_keywords = {
-        "coding", "programming", "software", "python",
-        "javascript", "artificial intelligence", "machine learning",
-        "computer science", "technology", "engineering",
-        "mathematics", "statistics", "data science",
-        "cybersecurity", "database", "physics", "chemistry",
-        "biology", "research", "algorithm",
-    }
-
-    claude_score = sum(1 for word in claude_keywords if word in text)
-    gpt_score = sum(1 for word in gpt_keywords if word in text)
-
-    if deck_type == "story":
-        claude_score += 2
-
-    if deck_type == "pitch":
-        claude_score += 1
-
-    if deck_type == "report":
-        gpt_score += 1
-
-    if claude_score > gpt_score:
-        return "claude"
-
-    return "chatgpt"
-
-
-# ==================================================
-# INPUT VALIDATION
-# ==================================================
-
-def _validate_input(payload):
-    """Validate user presentation settings."""
-
+def _validate_input(payload: dict):
     topic = str(payload.get("topic") or "").strip()
-
     if not topic:
         raise ValueError("Please enter a presentation topic.")
-
     if len(topic) > 200:
-        raise ValueError(
-            "Topic is too long. Keep it under 200 characters."
-        )
+        raise ValueError("Topic is too long. Keep it under 200 characters.")
 
     try:
         slide_count = int(payload.get("slides"))
@@ -232,45 +54,13 @@ def _validate_input(payload):
         raise ValueError("Please choose a valid slide count.")
 
     if slide_count not in ALLOWED_SLIDE_COUNTS:
-        allowed = ", ".join(
-            str(number) for number in sorted(ALLOWED_SLIDE_COUNTS)
-        )
+        allowed = ", ".join(str(n) for n in sorted(ALLOWED_SLIDE_COUNTS))
         raise ValueError(f"Slide count must be one of: {allowed}.")
 
-    audience = str(
-        payload.get("audience") or "general"
-    ).strip().lower()
-
-    if audience not in ALLOWED_AUDIENCES:
-        raise ValueError("Please choose a valid audience.")
-
-    tone = str(
-        payload.get("tone") or "educational"
-    ).strip().lower()
-
-    if tone not in ALLOWED_TONES:
-        raise ValueError("Please choose a valid presentation tone.")
-
-    theme = str(
-        payload.get("theme") or "aurora"
-    ).strip().lower()
-
-    if theme not in THEME_DESCRIPTIONS:
-        raise ValueError("Please choose a valid design theme.")
-
-    content_length = str(
-        payload.get("content_length") or "medium"
-    ).strip().lower()
-
-    if content_length not in ALLOWED_CONTENT_LENGTHS:
-        raise ValueError("Please choose a valid content length.")
-
-    deck_type = str(
-        payload.get("deck_type") or "lecture"
-    ).strip().lower()
-
-    if deck_type not in ALLOWED_DECK_TYPES:
-        raise ValueError("Please choose a valid presentation type.")
+    audience = str(payload.get("audience") or "general").strip().lower()
+    tone = str(payload.get("tone") or "educational").strip().lower()
+    theme = str(payload.get("theme") or "aurora").strip().lower()
+    model = str(payload.get("model") or "").strip()
 
     return {
         "topic": topic,
@@ -278,954 +68,240 @@ def _validate_input(payload):
         "audience": audience,
         "tone": tone,
         "theme": theme,
-        "content_length": content_length,
-        "deck_type": deck_type,
+        "model": model,
     }
 
 
-# ==================================================
-# PROMPT BUILD
-# ==================================================
+def _build_prompt(topic: str, audience: str, tone: str, theme: str, slide_count: int) -> str:
+    return f"""Create a presentation for a {audience} audience.
 
-def _build_prompt(
-    topic,
-    audience,
-    tone,
-    theme,
-    slide_count,
-    content_length="medium",
-    deck_type="lecture",
-):
-    """Build a detailed but efficient presentation prompt."""
+Topic: {topic}
+Tone: {tone}
+Visual theme: {theme}
+Exact number of slides: {slide_count}
 
-    theme_description = THEME_DESCRIPTIONS.get(
-        theme, THEME_DESCRIPTIONS["aurora"]
-    )
+Requirements:
+- Return exactly {slide_count} slides.
+- Slide 1 must be a strong title/intro slide.
+- The last slide must be a conclusion or call to action.
+- Include an introduction, logically ordered main content, and conclusion.
+- If the topic benefits from references, add a references slide at the end.
+- Every slide needs a short, strong title.
+- Every slide needs 3 to 5 short bullet points (max 6).
+- Every slide needs 2 to 4 sentences of speaker notes, separate from visible slide text.
+- Add a specific "image_query" for most slides. It must be a concrete Wikimedia
+  Commons search phrase (e.g. "artificial intelligence robot laboratory"), not
+  a generic word like "technology".
+- For references slides, image_query must be an empty string.
+- Use one of these layouts: title, intro, content, image-left, image-right,
+  full-image, comparison, conclusion, references.
+- Do not repeat the same content across slides. No filler.
 
-    content_guide = CONTENT_LENGTH_GUIDES.get(
-        content_length, CONTENT_LENGTH_GUIDES["medium"]
-    )
-
-    type_guide = DECK_TYPE_GUIDES.get(
-        deck_type, DECK_TYPE_GUIDES["lecture"]
-    )
-
-    return f"""Create a high-quality, informative PowerPoint presentation.
-
-TOPIC: {topic}
-AUDIENCE: {audience}
-TONE: {tone}
-PRESENTATION TYPE: {deck_type}
-
-PRESENTATION STRUCTURE:
-{type_guide}
-
-VISUAL DESIGN:
-Theme: {theme}
-Style: {theme_description}
-
-SLIDE COUNT:
-Exactly {slide_count} slides.
-
-CONTENT LENGTH:
-{content_length}
-
-{content_guide}
-
-CONTENT QUALITY RULES:
-
-- Prioritize the most important and useful information about the topic.
-- Explain what concepts mean, why they matter and how they work.
-- Include relevant examples, applications and practical insights.
-- Use accurate facts and meaningful comparisons.
-- Explain technical terms in language appropriate for the audience.
-- Avoid generic statements, repeated ideas and unnecessary filler.
-- Do not make every slide sound like an introduction.
-- Organize information in a logical learning or storytelling sequence.
-- Give each slide a clear purpose.
-- Do not sacrifice important information just to make slides shorter.
-- Do not turn slides into large paragraphs.
-
-FACTUAL ACCURACY:
-
-- Never invent statistics, percentages, research findings or quotations.
-- Use figures only when they are reliable and confidently known.
-- If an exact figure is uncertain, explain the finding qualitatively.
-- Never invent a source, research paper, author or reference URL.
-- Use genuine, relevant references only when confidently known.
-- Do not present estimates as verified facts.
-
-SLIDE REQUIREMENTS:
-
-- Slide 1 must be a strong title slide.
-- Introduce the topic before explaining its main concepts.
-- Cover the most important aspects of the topic.
-- The final slide title must be exactly "Thank You".
-- The final slide must use the conclusion layout.
-- Avoid repeating the same information on multiple slides.
-- Include 2 to 4 useful sentences in speaker notes for each slide.
-- Speaker notes should explain and expand on the slide content.
-- Add specific image_query descriptions to most suitable content slides.
-- Do not add SlideWala branding, logos, advertisements or watermarks.
-- Do not add a presenter name.
-
-LAYOUT VARIETY:
-
-Allowed layouts:
-title, intro, content, image-left, image-right, full-image,
-comparison, conclusion, references, section, stats,
-two-column, timeline, quote.
-
-- Use at least 3 different layouts where appropriate.
-- Do not repeat the same layout more than twice consecutively.
-- Use image-left and image-right to create visual variety.
-- Use full-image only when a relevant image can carry the slide.
-- Use stats only when reliable numerical data is available.
-- Stats require 2 to 4 items:
-  "stats": [{{"value": "72%", "label": "Short label"}}]
-- Two-column requires exactly 2 columns with 2 to 3 bullets each:
-  "columns": [
-    {{"heading": "First", "bullets": ["Point 1", "Point 2"]}},
-    {{"heading": "Second", "bullets": ["Point 1", "Point 2"]}}
-  ]
-- Timeline requires 3 to 5 steps:
-  "steps": [
-    {{"label": "Step name", "text": "Short explanation"}}
-  ]
-- Quote requires a genuine quotation:
-  "quote": "Actual quotation",
-  "quote_author": "Actual author"
-- Use at most one quote slide.
-- If reliable data for a special layout is unavailable, use a normal content layout.
-- Section slides should only be used for presentations with 10 or more slides.
-- Special layout slides must also contain useful summary bullets.
-
-JSON OUTPUT:
-
-Return ONLY one valid JSON object.
-Do not include Markdown fences or explanations.
-
-Use exactly this structure:
+Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
 
 {{
-  "title": "Presentation title",
+  "title": "Overall presentation title",
   "subtitle": "One-line subtitle",
   "slides": [
     {{
       "layout": "title",
       "title": "Slide title",
-      "bullets": ["Point 1", "Point 2"],
-      "speaker_notes": "Detailed explanation of the slide.",
-      "image_query": "Specific image search phrase",
-      "stats": [],
-      "columns": [],
-      "steps": [],
-      "quote": "",
-      "quote_author": ""
+      "bullets": ["point 1", "point 2", "point 3"],
+      "speaker_notes": "What the speaker says.",
+      "image_query": "specific image search phrase"
     }}
   ]
 }}
 """
 
 
-# ==================================================
-# RESPONSE PARSING
-# ==================================================
-
-def _extract_json(text):
-    """Extract a JSON object from the model response."""
-
+def _extract_json(text: str) -> dict:
     if not text:
         raise AIResponseError("The AI returned an empty response.")
 
     cleaned = text.strip()
-
-    fence = re.match(
-        r"^```(?:json)?\s*(.*?)\s*```$",
-        cleaned,
-        re.DOTALL | re.IGNORECASE,
-    )
-
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL | re.IGNORECASE)
     if fence:
         cleaned = fence.group(1).strip()
 
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-
+        start, end = cleaned.find("{"), cleaned.rfind("}")
         if start != -1 and end > start:
             try:
-                return json.loads(cleaned[start:end + 1])
+                return json.loads(cleaned[start : end + 1])
             except json.JSONDecodeError:
                 pass
-
-    raise AIResponseError(
-        "The AI returned content that is not valid JSON."
-    )
+    raise AIResponseError("The AI returned content that is not valid JSON.")
 
 
-def _clean_text(value, limit):
-    """Return a trimmed string limited to a maximum length."""
-
-    return str(value or "").strip()[:limit]
-
-
-def _clean_bullets(value, limit=6, max_len=420):
-    """Return a clean list of bullet strings."""
-
-    if not isinstance(value, list):
-        value = [value] if value else []
-
-    result = []
-
-    for item in value:
-        text = _clean_text(item, max_len)
-
-        if text:
-            result.append(text)
-
-    return result[:limit]
-
-
-def _clean_extras(raw):
-    """Clean additional data used by special layouts."""
-
-    stats = []
-
-    raw_stats = raw.get("stats")
-
-    if isinstance(raw_stats, list):
-        for item in raw_stats[:4]:
-            if isinstance(item, dict):
-                value = _clean_text(item.get("value"), 20)
-                label = _clean_text(item.get("label"), 60)
-
-                if value and label:
-                    stats.append({
-                        "value": value,
-                        "label": label,
-                    })
-
-    columns = []
-
-    raw_columns = raw.get("columns")
-
-    if isinstance(raw_columns, list):
-        for item in raw_columns[:2]:
-            if isinstance(item, dict):
-                heading = _clean_text(item.get("heading"), 60)
-
-                bullets = _clean_bullets(
-                    item.get("bullets"),
-                    limit=4,
-                    max_len=180,
-                )
-
-                if heading and bullets:
-                    columns.append({
-                        "heading": heading,
-                        "bullets": bullets,
-                    })
-
-    steps = []
-
-    raw_steps = raw.get("steps")
-
-    if isinstance(raw_steps, list):
-        for item in raw_steps[:5]:
-            if isinstance(item, dict):
-                label = _clean_text(item.get("label"), 40)
-                text = _clean_text(item.get("text"), 150)
-
-                if label and text:
-                    steps.append({
-                        "label": label,
-                        "text": text,
-                    })
-
-    return {
-        "stats": stats,
-        "columns": columns,
-        "steps": steps,
-        "quote": _clean_text(raw.get("quote"), 260),
-        "quote_author": _clean_text(raw.get("quote_author"), 80),
-    }
-
-
-def _has_layout_data(layout, extras):
-    """Check whether a special layout has its required information."""
-
-    if layout == "stats":
-        return len(extras["stats"]) >= 2
-
-    if layout == "two-column":
-        return len(extras["columns"]) == 2
-
-    if layout == "timeline":
-        return len(extras["steps"]) >= 3
-
-    if layout == "quote":
-        return bool(extras["quote"])
-
-    return True
-
-
-def _validate_output(data, expected_slides):
-    """Validate and clean generated presentation content."""
-
+def _validate_output(data: dict, expected_slides: int) -> dict:
     if not isinstance(data, dict):
-        raise AIResponseError(
-            "The AI response was not a JSON object."
-        )
+        raise AIResponseError("The AI response was not a JSON object.")
 
-    title = _clean_text(data.get("title"), 160)
-    subtitle = _clean_text(data.get("subtitle"), 240)
-
+    title = str(data.get("title") or "").strip()[:160]
+    subtitle = str(data.get("subtitle") or "").strip()[:240]
     raw_slides = data.get("slides")
 
     if not title:
-        raise AIResponseError(
-            "The AI response is missing the presentation title."
-        )
-
+        raise AIResponseError("The AI response is missing the presentation title.")
     if not isinstance(raw_slides, list) or not raw_slides:
-        raise AIResponseError(
-            "The AI response is missing slides."
-        )
-
+        raise AIResponseError("The AI response is missing slides.")
     if len(raw_slides) != expected_slides:
         raise AIResponseError(
-            f"The AI returned {len(raw_slides)} slide(s), "
-            f"but you requested {expected_slides}."
+            f"The AI returned {len(raw_slides)} slide(s) but you asked for "
+            f"{expected_slides}. Please try again."
         )
 
     slides = []
-
     for index, raw in enumerate(raw_slides, start=1):
         if not isinstance(raw, dict):
             continue
 
-        slide_title = _clean_text(
-            raw.get("title") or f"Slide {index}",
-            160,
-        )
+        slide_title = str(raw.get("title") or f"Slide {index}").strip()[:160]
+        bullets_raw = raw.get("bullets") or []
+        if not isinstance(bullets_raw, list):
+            bullets_raw = [str(bullets_raw)]
 
-        bullets = _clean_bullets(raw.get("bullets"))
+        bullets = []
+        for bullet in bullets_raw:
+            text = str(bullet).strip()[:300]
+            if text:
+                bullets.append(text)
+        if len(bullets) < 2:
+            bullets.append("Key takeaway for this slide.")
+        bullets = bullets[:6]
 
-        layout = _clean_text(
-            raw.get("layout") or "content",
-            30,
-        ).lower()
-
-        if layout not in ALLOWED_LAYOUTS:
-            layout = "content"
-
-        extras = _clean_extras(raw)
-
-        if layout in DATA_LAYOUTS and not _has_layout_data(
-            layout, extras
-        ):
-            layout = "content"
-
-        notes = _clean_text(raw.get("speaker_notes"), 2400)
-
+        notes = str(raw.get("speaker_notes") or "").strip()[:2400]
         if not notes:
             notes = "No speaker notes were generated for this slide."
 
-        slide = {
-            "layout": layout,
-            "title": slide_title or f"Slide {index}",
-            "bullets": bullets,
-            "speaker_notes": notes,
-            "image_query": _clean_text(
-                raw.get("image_query"),
-                160,
-            ),
-        }
+        layout = str(raw.get("layout") or "content").strip().lower()
+        if layout not in ALLOWED_LAYOUTS:
+            layout = "content"
 
-        if layout == "stats":
-            slide["stats"] = extras["stats"]
+        image_query = str(raw.get("image_query") or "").strip()[:80]
 
-        elif layout == "two-column":
-            slide["columns"] = extras["columns"]
-
-        elif layout == "timeline":
-            slide["steps"] = extras["steps"]
-
-        elif layout == "quote":
-            slide["quote"] = extras["quote"]
-            slide["quote_author"] = extras["quote_author"]
-
-        if layout in DATA_LAYOUTS | {"section", "references"}:
-            slide["image_query"] = ""
-
-        slides.append(slide)
+        slides.append(
+            {
+                "layout": layout,
+                "title": slide_title or f"Slide {index}",
+                "bullets": bullets,
+                "speaker_notes": notes,
+                "image_query": image_query,
+            }
+        )
 
     if len(slides) != expected_slides:
         raise AIResponseError(
-            f"Only {len(slides)} valid slide(s) were produced."
+            f"Only {len(slides)} valid slide(s) were produced. Please try again."
         )
 
-    for position in (0, -1):
-        for key in (
-            "stats", "columns", "steps",
-            "quote", "quote_author",
-        ):
-            slides[position].pop(key, None)
-
-    slides[0]["layout"] = "title"
-    slides[-1]["layout"] = "conclusion"
-    slides[-1]["title"] = "Thank You"
-
-    return {
-        "title": title,
-        "subtitle": subtitle,
-        "slides": slides,
-    }
+    return {"title": title, "subtitle": subtitle, "slides": slides}
 
 
-# ==================================================
-# API ERROR HANDLING
-# ==================================================
+def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=False):
+    api_key, base_url, default_model, timeout = _get_config()
+    active_model = model_name if model_name else default_model
 
-def _raise_openrouter_error(response):
-    """Convert OpenRouter errors into useful application errors."""
-
-    if response.status_code in (401, 403):
-        raise AIConfigError(
-            "OpenRouter rejected this API key. "
-            "Check OPENROUTER_KEY_*."
-        )
-
-    if response.status_code == 429:
-        raise AIResponseError(
-            "OpenRouter is rate-limiting this key."
-        )
-
-    try:
-        error_data = response.json()
-        detail = error_data.get("error", {}).get("message", "")
-
-    except (ValueError, AttributeError):
-        detail = (response.text or "")[:250]
-
-    raise AIResponseError(
-        f"OpenRouter error ({response.status_code}): "
-        f"{detail or 'Unknown error'}"
-    )
-
-
-def _raise_gemini_error(response):
-    """Convert Gemini errors into useful application errors."""
-
-    if response.status_code in (401, 403):
-        raise AIConfigError(
-            "Gemini rejected this API key. "
-            "Check GEMINI_KEY_*."
-        )
-
-    if response.status_code == 429:
-        raise AIResponseError(
-            "Gemini is rate-limiting this key."
-        )
-
-    try:
-        error_data = response.json()
-        detail = error_data.get("error", {}).get("message", "")
-
-    except (ValueError, AttributeError):
-        detail = (response.text or "")[:250]
-
-    raise AIResponseError(
-        f"Gemini error ({response.status_code}): "
-        f"{detail or 'Unknown error'}"
-    )
-
-
-# ==================================================
-# TOKEN BUDGET
-# ==================================================
-
-def _get_max_tokens(slide_count, content_length):
-    """Set enough output tokens without excessively large responses."""
-
-    tokens_per_slide = {
-        "short": 280,
-        "medium": 420,
-        "detailed": 620,
-    }
-
-    return 800 + (
-        slide_count * tokens_per_slide.get(content_length, 420)
-    )
-
-
-# ==================================================
-# PROVIDER CALLS (single key each)
-# ==================================================
-
-def _call_openrouter_with_key(api_key, model_alias, inputs, strict):
-    """Call OpenRouter with a single API key."""
-
-    base_url = _openrouter_base_url()
-    model = _resolve_openrouter_model(model_alias)
-    timeout_read = _env_int("AI_KEY_TIMEOUT", 60)
-    timeout_connect = _env_int("AI_CONNECT_TIMEOUT", 5)
-
-    prompt = _build_prompt(
-        inputs["topic"],
-        inputs["audience"],
-        inputs["tone"],
-        inputs["theme"],
-        inputs["slides"],
-        inputs["content_length"],
-        inputs["deck_type"],
-    )
-
+    prompt = _build_prompt(topic, audience, tone, theme, slide_count)
     if strict:
-        prompt += (
-            f"\n\nFINAL CHECK: Return exactly {inputs['slides']} slides. "
-            'The final title must be exactly "Thank You". '
-            "Return valid JSON only. Ensure every slide has a title, "
-            "useful bullets and speaker notes. Do not invent facts."
-        )
+        prompt += f"\n\nIMPORTANT: Return exactly {slide_count} slides. Count them before replying."
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": os.getenv(
-            "OPENROUTER_SITE_URL",
-            "https://slidewala.onrender.com",
-        ),
+        "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://slidewala.example"),
         "X-OpenRouter-Title": "SlideWala",
     }
 
-    request_body = {
-        "model": model,
+    payload = {
+        "model": active_model,
         "messages": [
             {
                 "role": "system",
                 "content": (
-                    "You are an expert presentation researcher and "
-                    "PowerPoint designer. Create informative, accurate, "
-                    "well-structured presentations. Return one valid "
-                    "JSON object and nothing else."
+                    "You are SlideWala, a senior presentation designer. "
+                    "You always answer with one valid JSON object and nothing else."
                 ),
             },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "user", "content": prompt},
         ],
-        "temperature": 0.55,
-        "max_tokens": _get_max_tokens(
-            inputs["slides"],
-            inputs["content_length"],
-        ),
-        "response_format": {
-            "type": "json_object",
-        },
+        "temperature": 0.65,
+        "response_format": {"type": "json_object"},
     }
-
-    url = f"{base_url}/chat/completions"
 
     try:
         response = requests.post(
-            url,
+            f"{base_url}/chat/completions",
             headers=headers,
-            json=request_body,
-            timeout=(timeout_connect, timeout_read),
+            json=payload,
+            timeout=timeout,
         )
+    except requests.Timeout:
+        raise AIResponseError("The AI service took too long to respond. Please try again.")
+    except requests.ConnectionError:
+        raise AIResponseError("Could not reach the AI service. Check your internet connection and AI_BASE_URL.")
+    except requests.RequestException as exc:
+        raise AIResponseError(f"Network error while contacting the AI: {exc}")
 
-        if (
-            response.status_code == 400
-            and "response_format" in (response.text or "")
-        ):
-            request_body.pop("response_format", None)
-
+    if response.status_code == 400 and "response_format" in (response.text or ""):
+        payload.pop("response_format", None)
+        try:
             response = requests.post(
-                url,
+                f"{base_url}/chat/completions",
                 headers=headers,
-                json=request_body,
-                timeout=(timeout_connect, timeout_read),
+                json=payload,
+                timeout=timeout,
             )
+        except requests.RequestException as exc:
+            raise AIResponseError(f"Network error while contacting the AI: {exc}")
 
-        if not response.ok:
-            _raise_openrouter_error(response)
-
+    if response.status_code == 401:
+        raise AIConfigError("The AI API key was rejected. Check OPENROUTER_API_KEY.")
+    if response.status_code == 429:
+        raise AIResponseError("The AI provider is rate-limiting requests. Wait a moment and try again.")
+    if response.status_code >= 400:
+        detail = ""
         try:
-            body = response.json()
-
-        except ValueError:
-            raise AIResponseError(
-                "OpenRouter returned an invalid response."
-            )
-
-    except requests.Timeout:
-        raise AIResponseError(
-            "OpenRouter took too long to respond."
-        )
-
-    except requests.ConnectionError:
-        raise AIResponseError(
-            "Could not reach OpenRouter."
-        )
-
-    except requests.RequestException as exc:
-        raise AIResponseError(
-            f"Network error while contacting OpenRouter: {exc}"
-        )
-
-    try:
-        content = body["choices"][0]["message"]["content"]
-
-    except (KeyError, IndexError, TypeError):
-        raise AIResponseError(
-            "OpenRouter returned an unexpected response format."
-        )
-
-    if isinstance(content, list):
-        content = "".join(
-            item.get("text", "")
-            for item in content
-            if isinstance(item, dict)
-        )
-
-    return _extract_json(content)
-
-
-def _call_gemini_with_key(api_key, inputs, strict):
-    """Call Google Gemini with a single API key."""
-
-    model = _resolve_gemini_model()
-    timeout_read = _env_int("AI_KEY_TIMEOUT", 60)
-    timeout_connect = _env_int("AI_CONNECT_TIMEOUT", 5)
-
-    prompt = _build_prompt(
-        inputs["topic"],
-        inputs["audience"],
-        inputs["tone"],
-        inputs["theme"],
-        inputs["slides"],
-        inputs["content_length"],
-        inputs["deck_type"],
-    )
-
-    if strict:
-        prompt += (
-            f"\n\nFINAL CHECK: Return exactly {inputs['slides']} slides. "
-            'The final title must be exactly "Thank You". '
-            "Return valid JSON only. Ensure every slide has a title, "
-            "useful bullets and speaker notes. Do not invent facts."
-        )
-
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={api_key}"
-    )
-
-    request_body = {
-        "systemInstruction": {
-            "parts": [
-                {
-                    "text": (
-                        "You are an expert presentation researcher and "
-                        "PowerPoint designer. Create informative, accurate, "
-                        "well-structured presentations. Return one valid "
-                        "JSON object and nothing else."
-                    )
-                }
-            ]
-        },
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.55,
-            "maxOutputTokens": _get_max_tokens(
-                inputs["slides"],
-                inputs["content_length"],
-            ),
-            "responseMimeType": "application/json",
-        },
-    }
-
-    try:
-        response = requests.post(
-            url,
-            json=request_body,
-            headers={"Content-Type": "application/json"},
-            timeout=(timeout_connect, timeout_read),
-        )
-
-        if not response.ok:
-            _raise_gemini_error(response)
-
-        try:
-            body = response.json()
-
-        except ValueError:
-            raise AIResponseError(
-                "Gemini returned an invalid response."
-            )
-
-    except requests.Timeout:
-        raise AIResponseError(
-            "Gemini took too long to respond."
-        )
-
-    except requests.ConnectionError:
-        raise AIResponseError(
-            "Could not reach Gemini."
-        )
-
-    except requests.RequestException as exc:
-        raise AIResponseError(
-            f"Network error while contacting Gemini: {exc}"
-        )
-
-    try:
-        content = (
-            body["candidates"][0]["content"]["parts"][0]["text"]
-        )
-
-    except (KeyError, IndexError, TypeError):
-        raise AIResponseError(
-            "Gemini returned an unexpected response format."
-        )
-
-    return _extract_json(content)
-
-
-# ==================================================
-# FAILOVER WRAPPER
-# ==================================================
-
-def _call_with_failover(api_provider, model_alias, inputs, strict):
-    """Try all keys for the provider in round-robin order."""
-
-    if api_provider == "openrouter":
-        keys = key_manager.openrouter_keys_rotated()
-
-        if not keys:
-            raise AIConfigError(
-                "No OpenRouter keys. Set OPENROUTER_KEY_1 in .env."
-            )
-
-        def caller(k):
-            return _call_openrouter_with_key(
-                k, model_alias, inputs, strict
-            )
-
-    elif api_provider == "gemini":
-        keys = key_manager.gemini_keys_rotated()
-
-        if not keys:
-            raise AIConfigError(
-                "No Gemini keys. Set GEMINI_KEY_1 in .env."
-            )
-
-        def caller(k):
-            return _call_gemini_with_key(k, inputs, strict)
-
-    else:
-        raise AIConfigError(f"Unknown provider: {api_provider}")
-
-    last_error = None
-
-    for idx, key in enumerate(keys, start=1):
-        try:
-            logger.info(
-                "%s attempt %d/%d",
-                api_provider,
-                idx,
-                len(keys),
-            )
-
-            return caller(key)
-
-        except AIConfigError:
-            last_error = AIResponseError(
-                f"{api_provider} key #{idx} invalid"
-            )
-
-            logger.warning(
-                "%s key #%d invalid (config).",
-                api_provider,
-                idx,
-            )
-
-            continue
-
-        except AIResponseError as exc:
-            last_error = exc
-
-            logger.warning(
-                "%s key #%d failed: %s",
-                api_provider,
-                idx,
-                exc,
-            )
-
-            continue
-
-    raise last_error or AIResponseError(
-        f"All {api_provider} keys failed."
-    )
-
-
-# ==================================================
-# PUBLIC ENTRY POINT
-# ==================================================
-
-def generate_presentation(payload):
-    """Generate a deck with multi-key failover and Redis caching."""
-
-    total_start = time.perf_counter()
-
-    inputs = _validate_input(payload)
-
-    # 1. Cache check
-    cache_key = make_cache_key(inputs)
-    cached = get_cached_deck(cache_key)
-
-    if cached:
-        logger.info(
-            "SlideWala cache HIT for '%s' (%.2fs).",
-            inputs["topic"],
-            time.perf_counter() - total_start,
-        )
-
-        return cached
-
-    logger.info(
-        "SlideWala cache MISS for '%s'.",
-        inputs["topic"],
-    )
-
-    # 2. Attempt chain
-    preferred = _choose_provider(
-        inputs["topic"],
-        inputs["deck_type"],
-        inputs["audience"],
-        inputs["tone"],
-    )
-
-    other = (
-        "claude"
-        if preferred == "chatgpt"
-        else "chatgpt"
-    )
-
-    attempts = [
-        ("openrouter", preferred, False),
-        ("openrouter", other, True),
-    ]
-
-    if key_manager.has_gemini():
-        attempts.append(("gemini", None, False))
-
-    last_error = None
-    deck = None
-
-    for attempt_number, (provider, model_alias, strict) in enumerate(
-        attempts,
-        start=1,
-    ):
-        attempt_start = time.perf_counter()
-
-        try:
-            raw = _call_with_failover(
-                api_provider=provider,
-                model_alias=model_alias,
-                inputs=inputs,
-                strict=strict,
-            )
-
-            deck = _validate_output(
-                raw,
-                inputs["slides"],
-            )
-
-            logger.info(
-                "SlideWala attempt %d (%s/%s) succeeded in %.2fs.",
-                attempt_number,
-                provider,
-                model_alias or "-",
-                time.perf_counter() - attempt_start,
-            )
-
-            break
-
-        except AIConfigError:
-            raise
-
-        except AIResponseError as exc:
-            last_error = exc
-
-            logger.warning(
-                "SlideWala attempt %d (%s/%s) failed after %.2fs: %s",
-                attempt_number,
-                provider,
-                model_alias or "-",
-                time.perf_counter() - attempt_start,
-                exc,
-            )
-
-    if deck is None:
-        logger.error(
-            "SlideWala generation exhausted all attempts in %.2fs.",
-            time.perf_counter() - total_start,
-        )
-
-        raise last_error or AIResponseError(
-            "All AI providers were unable to generate a presentation."
-        )
-
-    # 3. Attach user-selected settings to the deck
-    deck["audience"] = inputs["audience"]
-    deck["tone"] = inputs["tone"]
-    deck["theme"] = inputs["theme"]
-    deck["content_length"] = inputs["content_length"]
-    deck["deck_type"] = inputs["deck_type"]
-
-    # 4. Image enrichment
-    if os.getenv(
-        "ENABLE_WIKIMEDIA_IMAGES", "true"
-    ).lower() in ("true", "1", "yes", "on"):
-
-        image_start = time.perf_counter()
-
-        try:
-            enrich_slides_with_images(deck["slides"])
-
-            logger.info(
-                "SlideWala image enrichment in %.2fs.",
-                time.perf_counter() - image_start,
-            )
-
+            detail = response.json().get("error", {}).get("message", "")
         except Exception:
-            logger.exception(
-                "Image enrichment failed; continuing without images."
+            detail = (response.text or "")[:200]
+        raise AIResponseError(f"AI service error ({response.status_code}): {detail or 'Unknown error'}")
+
+    try:
+        body = response.json()
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, ValueError):
+        raise AIResponseError("The AI service returned an unexpected response format.")
+
+    return _extract_json(content)
+
+
+def generate_presentation(payload: dict) -> dict:
+    inputs = _validate_input(payload)
+    last_error = None
+
+    for attempt in range(2):
+        try:
+            raw = _call_ai(
+                topic=inputs["topic"],
+                audience=inputs["audience"],
+                tone=inputs["tone"],
+                theme=inputs["theme"],
+                slide_count=inputs["slides"],
+                model_name=inputs["model"],
+                strict=(attempt == 1),
             )
+            deck = _validate_output(raw, inputs["slides"])
+            deck["audience"] = inputs["audience"]
+            deck["tone"] = inputs["tone"]
+            deck["theme"] = inputs["theme"]
+            enrich_slides_with_images(deck)
+            return deck
+        except AIResponseError as exc:
+            last_error = exc
+            continue
 
-    else:
-        logger.info(
-            "SlideWala image enrichment is disabled."
-        )
-
-    # 5. Save to cache
-    set_cached_deck(cache_key, deck)
-
-    logger.info(
-        "SlideWala total time: %.2fs.",
-        time.perf_counter() - total_start,
-    )
-
-    return deck
+    raise last_error or AIResponseError("The AI could not generate a valid presentation.")
