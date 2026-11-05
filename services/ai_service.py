@@ -160,7 +160,8 @@ def _resolve_openrouter_model(alias):
 
 
 def _resolve_gemini_model():
-    return os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
+    # Yahan humne 1.5-flash ko hata kar 2.0-flash kar diya hai
+    return os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
 
 
 # ==================================================
