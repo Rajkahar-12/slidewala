@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=10">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=11">
 </head>
 <body>
 
@@ -257,7 +257,7 @@
     }
   </script>
   
-  <script src="{{ url_for('static', filename='js/layouts.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  <!-- Only app.js is loaded now, no layouts.js -->
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=11" defer></script>
 </body>
 </html>
