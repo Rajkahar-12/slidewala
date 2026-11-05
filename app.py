@@ -1,4 +1,3 @@
-
 """SlideWala - Flask application with background AI generation."""
 
 import io
@@ -100,15 +99,18 @@ def home():
 def health():
     """Lightweight health check."""
 
+    ai_configured = bool(
+        os.getenv("OPENROUTER_KEY_1")
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("AI_API_KEY")
+        or os.getenv("GEMINI_KEY_1")
+        or os.getenv("GEMINI_API_KEY")
+    )
+
     return jsonify({
         "status": "ok",
         "app": "SlideWala",
-        "ai_configured": bool(
-            os.getenv("OPENROUTER_API_KEY")
-            or os.getenv("AI_API_KEY")
-            or os.getenv("GEMINI_API_KEY")
-            or os.getenv("GROQ_API_KEY")
-        ),
+        "ai_configured": ai_configured,
     })
 
 
