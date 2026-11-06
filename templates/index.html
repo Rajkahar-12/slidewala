@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=11">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=13">
 </head>
 <body>
 
@@ -86,7 +86,7 @@
             name="topic"
             maxlength="200"
             rows="2"
-            placeholder="e.g. How artificial intelligence is changing healthcare"
+            placeholder="e.g. How AI is changing healthcare (type '5 slides' for a shorter deck)"
             required
           ></textarea>
           <span class="field-hint"><span id="topicCount">0</span>/200</span>
@@ -138,12 +138,10 @@
         </div>
 
         <div class="field">
-          <label>Number of slides</label>
-          <div class="segmented" id="slideCount" role="radiogroup" aria-label="Number of slides">
-            <button type="button" data-count="5">5</button>
-            <button type="button" data-count="8">8</button>
-            <button type="button" data-count="10" class="active">10</button>
-            <button type="button" data-count="12">12</button>
+          <label>Deck Style</label>
+          <div class="segmented" id="deckStyle" role="radiogroup" aria-label="Deck Style">
+            <button type="button" data-style="normal" class="active">Normal (Explanations)</button>
+            <button type="button" data-style="motion">Motion (Visual & Punchy)</button>
           </div>
         </div>
 
@@ -196,7 +194,7 @@
           <div class="slide-stage" id="slideStage" aria-live="polite"></div>
           <div class="stage-controls">
             <button class="icon-btn" id="prevBtn" type="button" aria-label="Previous slide">&#8249;</button>
-            <span id="slideCounter">1 / 10</span>
+            <span id="slideCounter">1 / 8</span>
             <button class="icon-btn" id="nextBtn" type="button" aria-label="Next slide">&#8250;</button>
           </div>
         </div>
@@ -204,7 +202,7 @@
         <aside class="preview-side">
           <div class="thumbs-head">
             <span>Slides</span>
-            <span id="thumbCount">10</span>
+            <span id="thumbCount">8</span>
           </div>
           <div class="thumbnails" id="thumbnails"></div>
           <div class="notes-card">
@@ -257,7 +255,6 @@
     }
   </script>
   
-  <!-- Only app.js is loaded now, no layouts.js -->
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=11" defer></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=13" defer></script>
 </body>
 </html>
