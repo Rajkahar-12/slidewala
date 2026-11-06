@@ -7,7 +7,6 @@ import requests
 
 from services.image_service import enrich_slides_with_images
 
-ALLOWED_SLIDE_COUNTS = {5, 8, 10, 12}
 ALLOWED_AUDIENCES = {"student", "teacher", "professional", "general"}
 ALLOWED_TONES = {"educational", "formal", "persuasive", "casual", "inspiring"}
 ALLOWED_THEMES = {"midnight", "aurora", "minimal", "corporate"}
@@ -48,53 +47,81 @@ def _validate_input(payload: dict):
     if len(topic) > 200:
         raise ValueError("Topic is too long. Keep it under 200 characters.")
 
-    try:
-        slide_count = int(payload.get("slides"))
-    except (TypeError, ValueError):
-        raise ValueError("Please choose a valid slide count.")
-
-    if slide_count not in ALLOWED_SLIDE_COUNTS:
-        allowed = ", ".join(str(n) for n in sorted(ALLOWED_SLIDE_COUNTS))
-        raise ValueError(f"Slide count must be one of: {allowed}.")
-
     audience = str(payload.get("audience") or "general").strip().lower()
     tone = str(payload.get("tone") or "educational").strip().lower()
     theme = str(payload.get("theme") or "aurora").strip().lower()
     model = str(payload.get("model") or "").strip()
+    style = str(payload.get("style") or "normal").strip().lower()
+    content_length = str(payload.get("content_length") or "medium").strip().lower()
 
     return {
         "topic": topic,
-        "slides": slide_count,
         "audience": audience,
         "tone": tone,
         "theme": theme,
         "model": model,
+        "style": style,
+        "content_length": content_length,
     }
 
 
-def _build_prompt(topic: str, audience: str, tone: str, theme: str, slide_count: int) -> str:
-    return f"""Create a presentation for a {audience} audience.
+def _build_prompt(topic: str, audience: str, tone: str, theme: str, style: str, content_length: str, strict: bool = False) -> str:
+    
+    style_instructions = ""
+    if style == "normal":
+        style_instructions = """
+STYLE: NORMAL (Structured / Educational)
+- Every slide MUST have a "subtopic" (a short phrase that elaborates on the main title).
+- Bullets should be full sentences or paragraphs that explain the subtopic.
+- Example: Title: "The Rise of AI", Subtopic: "How machine learning is changing industries", Bullets: ["AI is no longer just science fiction; it powers your daily apps.", "Machine learning models analyze vast amounts of data to find patterns."]
+        """
+    else:
+        style_instructions = """
+STYLE: MOTION (Visual / Pitch)
+- Omit "subtopic" entirely (leave it as an empty string).
+- Bullets must be very short, punchy phrases (max 5 words each).
+- Example: Title: "The Rise of AI", Bullets: ["Transforms industries", "Analyzes data instantly", "Powers daily apps"]
+        """
+
+    length_instructions = ""
+    if content_length == "short":
+        length_instructions = "Keep explanations very brief. Max 2-3 concise sentences per slide."
+    elif content_length == "detailed":
+        length_instructions = "Provide detailed, thorough explanations. 3-4 detailed sentences per slide. Use all 5 bullet points."
+    else:
+        length_instructions = "Provide balanced explanations. 3-4 sentences per slide. Use 3-4 bullet points."
+
+    layout_instructions = """
+LAYOUT & DESIGN RULES (Crucial for how the slide looks):
+- Use "image-right" if the slide has a lot of text (e.g., Normal style). This gives the text room to breathe on the left.
+- Use "image-left" if the text is short and punchy (e.g., Motion style).
+- Use "full-image" ONLY for powerful quotes, single strong concepts, or title slides. The text will appear in a box over a large background image.
+- If you use images on two consecutive slides, alternate the layouts (e.g., Slide 2 uses "image-left", Slide 3 uses "image-right") to create a dynamic rhythm.
+- Use "content" (no image) if the text is extremely long, or if it's a comparison slide.
+"""
+
+    prompt = f"""Create a presentation for a {audience} audience.
 
 Topic: {topic}
 Tone: {tone}
 Visual theme: {theme}
-Exact number of slides: {slide_count}
 
-Requirements:
-- Return exactly {slide_count} slides.
+{style_instructions}
+{length_instructions}
+{layout_instructions}
+
+Slide Count Rules:
+- If the user's topic explicitly asks for a specific number of slides (e.g., "5 slides", "a 10-slide deck"), generate exactly that many.
+- If no number is specified in the topic, you MUST generate exactly 8 slides.
+
+Global Requirements:
 - Slide 1 must be a strong title/intro slide.
 - The last slide must be a conclusion or call to action.
 - Include an introduction, logically ordered main content, and conclusion.
 - If the topic benefits from references, add a references slide at the end.
 - Every slide needs a short, strong title.
-- Every slide needs 3 to 5 short bullet points (max 6).
 - Every slide needs 2 to 4 sentences of speaker notes, separate from visible slide text.
-- Add a specific "image_query" for most slides. It must be a concrete Wikimedia
-  Commons search phrase (e.g. "artificial intelligence robot laboratory"), not
-  a generic word like "technology".
-- For references slides, image_query must be an empty string.
-- Use one of these layouts: title, intro, content, image-left, image-right,
-  full-image, comparison, conclusion, references.
+- Add a specific "image_query" for most slides. It must be a concrete Wikimedia Commons search phrase (e.g. "artificial intelligence robot laboratory"). For references slides, image_query must be an empty string.
 - Do not repeat the same content across slides. No filler.
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
@@ -104,8 +131,9 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
   "subtitle": "One-line subtitle",
   "slides": [
     {{
-      "layout": "title",
+      "layout": "image-left",
       "title": "Slide title",
+      "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
       "image_query": "specific image search phrase"
@@ -113,6 +141,9 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
   ]
 }}
 """
+    if strict:
+        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Check how many slides the user requested in the topic. If they didn't specify, you MUST output exactly 8 slides."
+    return prompt
 
 
 def _extract_json(text: str) -> dict:
@@ -136,7 +167,7 @@ def _extract_json(text: str) -> dict:
     raise AIResponseError("The AI returned content that is not valid JSON.")
 
 
-def _validate_output(data: dict, expected_slides: int) -> dict:
+def _validate_output(data: dict) -> dict:
     if not isinstance(data, dict):
         raise AIResponseError("The AI response was not a JSON object.")
 
@@ -148,11 +179,9 @@ def _validate_output(data: dict, expected_slides: int) -> dict:
         raise AIResponseError("The AI response is missing the presentation title.")
     if not isinstance(raw_slides, list) or not raw_slides:
         raise AIResponseError("The AI response is missing slides.")
-    if len(raw_slides) != expected_slides:
-        raise AIResponseError(
-            f"The AI returned {len(raw_slides)} slide(s) but you asked for "
-            f"{expected_slides}. Please try again."
-        )
+    
+    if len(raw_slides) < 3 or len(raw_slides) > 30:
+        raise AIResponseError(f"The AI returned an invalid number of slides ({len(raw_slides)}). Please try again.")
 
     slides = []
     for index, raw in enumerate(raw_slides, start=1):
@@ -160,6 +189,8 @@ def _validate_output(data: dict, expected_slides: int) -> dict:
             continue
 
         slide_title = str(raw.get("title") or f"Slide {index}").strip()[:160]
+        subtopic = str(raw.get("subtopic") or "").strip()[:200]
+        
         bullets_raw = raw.get("bullets") or []
         if not isinstance(bullets_raw, list):
             bullets_raw = [str(bullets_raw)]
@@ -187,27 +218,21 @@ def _validate_output(data: dict, expected_slides: int) -> dict:
             {
                 "layout": layout,
                 "title": slide_title or f"Slide {index}",
+                "subtopic": subtopic,
                 "bullets": bullets,
                 "speaker_notes": notes,
                 "image_query": image_query,
             }
         )
 
-    if len(slides) != expected_slides:
-        raise AIResponseError(
-            f"Only {len(slides)} valid slide(s) were produced. Please try again."
-        )
-
     return {"title": title, "subtitle": subtitle, "slides": slides}
 
 
-def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=False):
+def _call_ai(topic, audience, tone, theme, style, content_length, model_name=None, strict=False):
     api_key, base_url, default_model, timeout = _get_config()
     active_model = model_name if model_name else default_model
 
-    prompt = _build_prompt(topic, audience, tone, theme, slide_count)
-    if strict:
-        prompt += f"\n\nIMPORTANT: Return exactly {slide_count} slides. Count them before replying."
+    prompt = _build_prompt(topic, audience, tone, theme, style, content_length, strict)
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -230,7 +255,7 @@ def _call_ai(topic, audience, tone, theme, slide_count, model_name=None, strict=
         ],
         "temperature": 0.65,
         "response_format": {"type": "json_object"},
-        "max_tokens": 4000,  # 🚨 FIXES THE 402 CREDIT ERROR
+        "max_tokens": 4000,
     }
 
     try:
@@ -304,11 +329,12 @@ def generate_presentation(payload: dict) -> dict:
                 audience=inputs["audience"],
                 tone=inputs["tone"],
                 theme=inputs["theme"],
-                slide_count=inputs["slides"],
+                style=inputs["style"],
+                content_length=inputs["content_length"],
                 model_name=inputs["model"],
                 strict=(attempt == 1),
             )
-            deck = _validate_output(raw, inputs["slides"])
+            deck = _validate_output(raw)
             deck["audience"] = inputs["audience"]
             deck["tone"] = inputs["tone"]
             deck["theme"] = inputs["theme"]
