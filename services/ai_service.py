@@ -73,14 +73,12 @@ def _build_prompt(topic: str, audience: str, tone: str, theme: str, style: str, 
 STYLE: NORMAL (Structured / Educational)
 - Every slide MUST have a "subtopic" (a short phrase that elaborates on the main title).
 - Bullets should be full sentences or paragraphs that explain the subtopic.
-- Example: Title: "The Rise of AI", Subtopic: "How machine learning is changing industries", Bullets: ["AI is no longer just science fiction; it powers your daily apps.", "Machine learning models analyze vast amounts of data to find patterns."]
         """
     else:
         style_instructions = """
 STYLE: MOTION (Visual / Pitch)
 - Omit "subtopic" entirely (leave it as an empty string).
 - Bullets must be very short, punchy phrases (max 5 words each).
-- Example: Title: "The Rise of AI", Bullets: ["Transforms industries", "Analyzes data instantly", "Powers daily apps"]
         """
 
     length_instructions = ""
@@ -93,10 +91,10 @@ STYLE: MOTION (Visual / Pitch)
 
     layout_instructions = """
 LAYOUT & DESIGN RULES (Crucial for how the slide looks):
-- Use "image-right" if the slide has a lot of text (e.g., Normal style). This gives the text room to breathe on the left.
-- Use "image-left" if the text is short and punchy (e.g., Motion style).
-- Use "full-image" ONLY for powerful quotes, single strong concepts, or title slides. The text will appear in a box over a large background image.
-- If you use images on two consecutive slides, alternate the layouts (e.g., Slide 2 uses "image-left", Slide 3 uses "image-right") to create a dynamic rhythm.
+- Use "image-right" if the slide has a lot of text. This gives the text room to breathe on the left.
+- Use "image-left" if the text is short and punchy.
+- Use "full-image" ONLY for powerful quotes or single strong concepts.
+- If you use images on two consecutive slides, alternate the layouts to create a dynamic rhythm.
 - Use "content" (no image) if the text is extremely long, or if it's a comparison slide.
 """
 
@@ -111,18 +109,19 @@ Visual theme: {theme}
 {layout_instructions}
 
 Slide Count Rules:
-- If the user's topic explicitly asks for a specific number of slides (e.g., "5 slides", "a 10-slide deck"), generate exactly that many.
+- If the user's topic explicitly asks for a specific number of slides (e.g., "5 slides"), generate exactly that many.
 - If no number is specified in the topic, you MUST generate exactly 8 slides.
 
 Global Requirements:
 - Slide 1 must be a strong title/intro slide.
 - The last slide must be a conclusion or call to action.
 - Include an introduction, logically ordered main content, and conclusion.
-- If the topic benefits from references, add a references slide at the end.
 - Every slide needs a short, strong title.
-- Every slide needs 2 to 4 sentences of speaker notes, separate from visible slide text.
-- Add a specific "image_query" for most slides. It must be a concrete Wikimedia Commons search phrase (e.g. "artificial intelligence robot laboratory"). For references slides, image_query must be an empty string.
-- Do not repeat the same content across slides. No filler.
+- Every slide needs 2 to 4 sentences of speaker notes.
+- CRITICAL: Add a specific "image_query" for most slides. 
+- CRITICAL: The "image_query" MUST be 1 to 3 simple keywords that exist in a photo database (e.g., "hospital", "doctor", "robot", "laptop", "business meeting"). 
+- DO NOT write sentences in the image_query. Keep it extremely short and visual.
+- For references slides, image_query must be an empty string.
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
 
@@ -136,13 +135,13 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
       "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
-      "image_query": "specific image search phrase"
+      "image_query": "keyword"
     }}
   ]
 }}
 """
     if strict:
-        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Check how many slides the user requested in the topic. If they didn't specify, you MUST output exactly 8 slides."
+        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Output exactly 8 slides if no number was requested."
     return prompt
 
 
@@ -338,7 +337,10 @@ def generate_presentation(payload: dict) -> dict:
             deck["audience"] = inputs["audience"]
             deck["tone"] = inputs["tone"]
             deck["theme"] = inputs["theme"]
-            enrich_slides_with_images(deck)
+            
+            # Pass the main topic as a fallback for image search
+            enrich_slides_with_images(deck, fallback_query=inputs["topic"])
+            
             return deck
         except AIResponseError as exc:
             last_error = exc
