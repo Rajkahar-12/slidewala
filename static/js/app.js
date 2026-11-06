@@ -1,15 +1,14 @@
 (() => {
   "use strict";
 
-  // Safe element getters
   const form = document.getElementById("createForm");
   const topicInput = document.getElementById("topic");
   const topicCount = document.getElementById("topicCount");
   const audienceSelect = document.getElementById("audience");
   const toneSelect = document.getElementById("tone");
   const themeSelect = document.getElementById("theme");
-  const slideCountGroup = document.getElementById("slideCount");
   const contentLengthGroup = document.getElementById("contentLength");
+  const deckStyleGroup = document.getElementById("deckStyle");
   const generateBtn = document.getElementById("generateBtn");
 
   const workspace = document.getElementById("workspace");
@@ -33,13 +32,14 @@
   const loadingTitle = document.getElementById("loadingTitle");
   const loadingMessage = document.getElementById("loadingMessage");
   
-  // These might be null if the user is on a different page
   const createSection = document.getElementById("create");
 
   let currentDeck = null;
   let currentIndex = 0;
-  let selectedSlideCount = 10;
   let isBusy = false;
+  
+  let selectedStyle = "normal";
+  let selectedLength = "medium";
 
   const THEMES = {
     aurora:    { bg: "#f8f6ff", title: "#18142c", text: "#373250", accent: "#6c4cf1", muted: "#78738c", card: "#ffffff" },
@@ -95,12 +95,12 @@
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
-  if (slideCountGroup) {
-    slideCountGroup.querySelectorAll("button").forEach((btn) => {
+  if (deckStyleGroup) {
+    deckStyleGroup.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => {
-        slideCountGroup.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+        deckStyleGroup.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        selectedSlideCount = Number(btn.dataset.count);
+        selectedStyle = btn.dataset.style;
       });
     });
   }
@@ -110,6 +110,7 @@
       btn.addEventListener("click", () => {
         contentLengthGroup.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
+        selectedLength = btn.dataset.length;
       });
     });
   }
@@ -141,9 +142,9 @@
             topic, 
             audience: audienceSelect ? audienceSelect.value : "general", 
             tone: toneSelect ? toneSelect.value : "educational", 
-            theme: themeSelect ? themeSelect.value : "aurora", 
-            slides: selectedSlideCount
-            // Note: model is intentionally omitted, backend will use .env default
+            theme: themeSelect ? themeSelect.value : "aurora",
+            style: selectedStyle,
+            content_length: selectedLength
           })
         });
         const data = await safeJson(res);
@@ -217,6 +218,9 @@
     const kicker = isTitle ? "SLIDEWALA" : `SLIDE ${String(index + 1).padStart(2, "0")}`;
     const bulletsHtml = (slide.bullets || []).map((b) => `<li>${escapeHtml(b)}</li>`).join("");
     const mediaHtml = hasImage ? `<div class="slide-media"><img src="${escapeHtml(slide.image_url)}" alt="${escapeHtml(slide.image_alt || "")}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>` : "";
+    
+    // Add subtopic if it exists (for Normal style)
+    const subtopicHtml = slide.subtopic ? `<div style="font-size: 0.6em; font-weight: 600; color: ${theme.muted}; margin-bottom: 4%;">${escapeHtml(slide.subtopic)}</div>` : "";
 
     let wrapperClass = "slide-canvas-inner";
     if (isFull) wrapperClass += " full-image";
@@ -230,6 +234,7 @@
         <div class="slide-content">
           <div class="slide-kicker" style="color:${theme.accent}">${escapeHtml(kicker)}</div>
           <h3 class="slide-title" style="color:${theme.title}">${escapeHtml(slide.title || "Slide " + (index + 1))}</h3>
+          ${subtopicHtml}
           <ul class="slide-bullets">${bulletsHtml}</ul>
         </div>
         ${!isFull ? mediaHtml : ""}
@@ -256,6 +261,7 @@
     lines.push("");
     deck.slides.forEach((slide, i) => {
       lines.push(`Slide ${i + 1}: ${slide.title || ""}`);
+      if (slide.subtopic) lines.push(`  Subtopic: ${slide.subtopic}`);
       (slide.bullets || []).forEach((b) => lines.push("  • " + b));
       if (slide.speaker_notes) lines.push("  Speaker notes: " + slide.speaker_notes);
       lines.push("");
