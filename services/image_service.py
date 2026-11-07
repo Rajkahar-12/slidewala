@@ -1,180 +1,82 @@
-"""Wikimedia Commons image search, proxy, and slide enrichment."""
+"""AI Image Generation using Pollinations AI (Free, No API Key Required)."""
 import os
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote_plus, urlparse
 
-import requests
-
-WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php"
-ALLOWED_IMAGE_HOSTS = {"upload.wikimedia.org", "commons.wikimedia.org"}
-
-USER_AGENT = os.getenv(
-    "WIKIMEDIA_USER_AGENT",
-    "SlideWala/1.0 (https://example.com; slidewala@example.com)",
-)
-
-_SESSION = requests.Session()
-_SESSION.headers.update({"User-Agent": USER_AGENT})
-
-# 🚨 SAFETY FILTERS
-SENSITIVE_WORDS = {"sex", "penis", "vagina", "reproduction", "anatomy", "nude", "naked", "breast", "genital", "erotic"}
-BLOCKED_TITLE_WORDS = {"porn", "nude", "naked", "erotic", "sex", "genital", "penis", "vagina", "manual", "subsystem", "spacecraft"}
-
-def _is_allowed_url(url: str) -> bool:
-    try:
-        parsed = urlparse(url)
-        return (
-            parsed.scheme in ("http", "https")
-            and parsed.hostname in ALLOWED_IMAGE_HOSTS
-        )
-    except Exception:
-        return False
-
-
-def proxy_image(url: str):
-    """Fetch an allowed image server-side and return (bytes, content_type)."""
-    if not _is_allowed_url(url):
-        raise ValueError("Image URL is not from an allowed source.")
-
-    resp = _SESSION.get(url, timeout=15, allow_redirects=True)
-    if not resp.ok:
-        raise RuntimeError(f"Image request failed with status {resp.status_code}.")
-    if not _is_allowed_url(resp.url):
-        raise ValueError("Image redirected to a disallowed host.")
-
-    content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if not content_type.startswith("image/"):
-        raise ValueError("The URL did not return an image.")
-
-    if len(resp.content) > 10 * 1024 * 1024:
-        raise ValueError("Image is too large.")
-
-    return resp.content, content_type
-
-
-def search_wikimedia(query: str, limit: int = 6):
-    """Search Wikimedia Commons for bitmap images. Keyless API."""
-    if not query or not query.strip():
-        return []
-
-    # 🚨 STRICT SEARCH: No extra words, just the exact term the AI provided.
-    search_term = query.strip()
-
-    params = {
-        "action": "query",
-        "generator": "search",
-        "gsrsearch": f"{search_term} filetype:bitmap",
-        "gsrnamespace": "6",
-        "gsrlimit": str(min(max(limit, 1), 10)),
-        "prop": "imageinfo",
-        "iiprop": "url|mime|size",
-        "iiurlwidth": "1600",
-        "format": "json",
-    }
-
-    try:
-        resp = _SESSION.get(WIKIMEDIA_API, params=params, timeout=8)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        print(f"Wikimedia API Error for '{search_term}': {e}")
-        return []
-
-    pages = (payload.get("query") or {}).get("pages") or {}
-    results = []
-
-    for page in pages.values():
-        infos = page.get("imageinfo") or []
-        if not infos:
-            continue
-        info = infos[0]
-        mime = (info.get("mime") or "").lower()
-        if mime not in ("image/jpeg", "image/png", "image/webp"):
-            continue
-
-        title = (page.get("title") or "").replace("File:", "")
-        
-        # 🚨 REJECT BAD IMAGES BY TITLE
-        title_lower = title.lower()
-        if any(bad_word in title_lower for bad_word in BLOCKED_TITLE_WORDS):
-            print(f"Rejected image: {title}")
-            continue
-
-        width = int(info.get("width") or 0)
-        height = int(info.get("height") or 0)
-        if width < 500 or height < 300:
-            continue
-
-        original = info.get("url")
-        if not original:
-            continue
-
-        results.append(
-            {
-                "title": title,
-                "url": original,
-                "width": width,
-                "height": height,
-                "mime": mime,
-            }
-        )
-
-    return results
-
-
-def _score_image(item: dict) -> int:
-    """Prefer landscape images large enough for a 16:9 slide."""
-    width = item.get("width") or 0
-    height = item.get("height") or 0
-    if not width or not height:
-        return -1
-    ratio = width / height
-    score = 0
-    if 1.2 <= ratio <= 2.0:
-        score += 4
-    elif 0.8 <= ratio < 1.2:
-        score += 1
-    if width >= 1200:
-        score += 2
-    return score
-
+# 🚨 SAFETY FILTER
+# If the AI tries to generate these, we block it to keep the site safe for school.
+BLOCKED_PROMPT_WORDS = {
+    "sex", "penis", "vagina", "nude", "naked", "breast", "genital", 
+    "erotic", "porn", "nsfw", "explicit", "blood", "gore"
+}
 
 def _get_image_for_slide(slide: dict):
-    query = (slide.get("image_query") or "").strip()
-    if not query:
+    prompt = (slide.get("image_query") or "").strip()
+    title = (slide.get("title") or "").lower()
+
+    # 🚨 SAFETY CHECK 1: Check the slide title
+    if any(bad_word in title for bad_word in BLOCKED_PROMPT_WORDS):
+        print(f"Blocked unsafe slide title: '{title}'")
+        return slide
+
+    if not prompt:
+        return slide
+
+    # 🚨 SAFETY CHECK 2: Check the prompt for unsafe words
+    prompt_lower = prompt.lower()
+    if any(bad_word in prompt_lower for bad_word in BLOCKED_PROMPT_WORDS):
+        print(f"Blocked unsafe image prompt: '{prompt}'")
         return slide
 
     try:
-        candidates = search_wikimedia(query)
+        # Pollinations AI expects the prompt to be URL-encoded
+        encoded_prompt = urllib.parse.quote(prompt)
         
-        # 🚨 NO FALLBACK. If the search fails, show NO image.
-        if not candidates:
-            print(f"No images found for '{query}'. Skipping image.")
-            return slide
+        # We use the Flux model for high quality, and request a 16:9 landscape image
+        # The 'nologo=true' parameter removes the watermark
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&model=flux&nologo=true&seed={hash(prompt)}"
 
-        best = max(candidates, key=_score_image)
-        if _score_image(best) < 0:
-            return slide
-
-        slide["image_source_url"] = best["url"]
-        slide["image_url"] = "/api/image?url=" + quote_plus(best["url"])
-        slide["image_alt"] = best["title"][:160]
-        slide["image_credit"] = "Wikimedia Commons"
-        print(f"Image found for '{query}' -> {best['title']}")
+        # We don't download the image here; we just pass the URL to the frontend.
+        slide["image_source_url"] = image_url
+        slide["image_url"] = "/api/image?url=" + urllib.parse.quote_plus(image_url)
+        slide["image_alt"] = prompt[:160]
+        slide["image_credit"] = "AI Generated"
         
+        print(f"Generated image for: '{prompt[:50]}...'")
+
     except Exception as e:
-        print(f"Error fetching image: {e}")
+        print(f"Error generating image: {e}")
 
     return slide
 
 
 def enrich_slides_with_images(presentation: dict):
-    """Attach one relevant Wikimedia image to each slide in parallel."""
+    """Attach one AI-generated image to each slide in parallel."""
     slides = presentation.get("slides") or []
     if not slides:
         return presentation
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         list(executor.map(_get_image_for_slide, slides))
 
     return presentation
+
+
+def proxy_image(url: str):
+    """Fetch the generated image securely."""
+    allowed_hosts = {"image.pollinations.ai"}
+    parsed = urllib.parse.urlparse(url)
+    
+    if parsed.hostname not in allowed_hosts:
+        raise ValueError("Image URL is not from an allowed source.")
+
+    import requests
+    resp = requests.get(url, timeout=25) # Pollinations can take a few seconds to generate
+    if not resp.ok:
+        raise RuntimeError(f"Image request failed: {resp.status_code}")
+
+    content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if not content_type.startswith("image/"):
+        raise ValueError("URL did not return an image.")
+
+    return resp.content, content_type
