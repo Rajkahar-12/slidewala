@@ -90,11 +90,11 @@ STYLE: MOTION (Visual / Pitch)
         length_instructions = "Provide balanced explanations. 3-4 sentences per slide. Use 3-4 bullet points."
 
     layout_instructions = """
-LAYOUT & DESIGN RULES (Crucial for how the slide looks):
-- Use "image-right" if the slide has a lot of text. This gives the text room to breathe on the left.
+LAYOUT & DESIGN RULES:
+- Use "image-right" if the slide has a lot of text. 
 - Use "image-left" if the text is short and punchy.
 - Use "full-image" ONLY for powerful quotes or single strong concepts.
-- If you use images on two consecutive slides, alternate the layouts to create a dynamic rhythm.
+- If you use images on two consecutive slides, alternate the layouts.
 - Use "content" (no image) if the text is extremely long, or if it's a comparison slide.
 """
 
@@ -115,15 +115,16 @@ Slide Count Rules:
 Global Requirements:
 - Slide 1 must be a strong title/intro slide.
 - The last slide must be a conclusion or call to action.
-- Include an introduction, logically ordered main content, and conclusion.
 - Every slide needs a short, strong title.
 - Every slide needs 2 to 4 sentences of speaker notes.
-- CRITICAL IMAGE RULE: Add a specific "image_query" for most slides. 
-- CRITICAL IMAGE SAFETY: This is for a school/study website. The "image_query" MUST be strictly academic and safe. 
-- If the topic is biology or anatomy (e.g. reproduction, organs), you MUST use terms like "biology diagram", "anatomy chart", "scientific illustration", "microscope view". NEVER use raw or explicit biological terms.
-- For all other topics, use 1 to 3 simple visual keywords (e.g., "business meeting", "laptop coding").
-- DO NOT write sentences in the image_query. Keep it extremely short.
 - For references slides, image_query must be an empty string.
+
+CRITICAL IMAGE RULES:
+- The "image_query" MUST be a specific Wikipedia article title. 
+- Do NOT use sentences or abstract concepts. Use the exact noun.
+- For biology/anatomy, use the exact scientific term (e.g., "Spermatogenesis", "Semen", "Testicle", "Prostate").
+- For history, use the exact person or event (e.g., "World War II", "Abraham Lincoln").
+- For business, use the exact concept (e.g., "Artificial intelligence", "Stock market").
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
 
@@ -137,7 +138,7 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
       "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
-      "image_query": "educational keyword"
+      "image_query": "Exact Wikipedia Title"
     }}
   ]
 }}
@@ -341,7 +342,7 @@ def generate_presentation(payload: dict) -> dict:
             deck["tone"] = inputs["tone"]
             deck["theme"] = inputs["theme"]
             
-            enrich_slides_with_images(deck, fallback_query=inputs["topic"])
+            enrich_slides_with_images(deck)
             
             return deck
         except AIResponseError as exc:
