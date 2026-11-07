@@ -4,7 +4,6 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 # 🚨 SAFETY FILTER
-# If the AI tries to generate these, we block it to keep the site safe for school.
 BLOCKED_PROMPT_WORDS = {
     "sex", "penis", "vagina", "nude", "naked", "breast", "genital", 
     "erotic", "porn", "nsfw", "explicit", "blood", "gore"
@@ -30,13 +29,15 @@ def _get_image_for_slide(slide: dict):
 
     try:
         # Pollinations AI expects the prompt to be URL-encoded
-        encoded_prompt = urllib.parse.quote(prompt)
+        # We use urllib.parse.quote with safe='' to encode everything including slashes
+        encoded_prompt = urllib.parse.quote(prompt, safe='')
         
-        # We use the Flux model for high quality, and request a 16:9 landscape image
-        # The 'nologo=true' parameter removes the watermark
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&model=flux&nologo=true&seed={hash(prompt)}"
+        # Use abs(hash()) so the seed is always a positive integer
+        seed = abs(hash(prompt)) % 1000000
+        
+        # Request a 16:9 landscape image using the Flux model
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&model=flux&nologo=true&seed={seed}"
 
-        # We don't download the image here; we just pass the URL to the frontend.
         slide["image_source_url"] = image_url
         slide["image_url"] = "/api/image?url=" + urllib.parse.quote_plus(image_url)
         slide["image_alt"] = prompt[:160]
@@ -51,12 +52,11 @@ def _get_image_for_slide(slide: dict):
 
 
 def enrich_slides_with_images(presentation: dict):
-    """Attach one AI-generated image to each slide in parallel."""
     slides = presentation.get("slides") or []
     if not slides:
         return presentation
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(_get_image_for_slide, slides))
 
     return presentation
@@ -71,7 +71,11 @@ def proxy_image(url: str):
         raise ValueError("Image URL is not from an allowed source.")
 
     import requests
-    resp = requests.get(url, timeout=25) # Pollinations can take a few seconds to generate
+    resp = requests.get(
+        url, 
+        timeout=45, 
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    )
     if not resp.ok:
         raise RuntimeError(f"Image request failed: {resp.status_code}")
 
