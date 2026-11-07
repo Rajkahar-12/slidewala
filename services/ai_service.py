@@ -94,7 +94,6 @@ LAYOUT & DESIGN RULES:
 - Use "image-right" if the slide has a lot of text. 
 - Use "image-left" if the text is short and punchy.
 - Use "full-image" ONLY for powerful quotes or single strong concepts.
-- If you use images on two consecutive slides, alternate the layouts.
 - Use "content" (no image) if the text is extremely long, or if it's a comparison slide.
 """
 
@@ -119,12 +118,12 @@ Global Requirements:
 - Every slide needs 2 to 4 sentences of speaker notes.
 - For references slides, image_query must be an empty string.
 
-CRITICAL IMAGE RULES:
-- The "image_query" MUST be a specific Wikipedia article title. 
-- Do NOT use sentences or abstract concepts. Use the exact noun.
-- For biology/anatomy, use the exact scientific term (e.g., "Spermatogenesis", "Semen", "Testicle", "Prostate").
-- For history, use the exact person or event (e.g., "World War II", "Abraham Lincoln").
-- For business, use the exact concept (e.g., "Artificial intelligence", "Stock market").
+CRITICAL IMAGE GENERATION RULES:
+- We are using an AI Image Generator (not a stock search). 
+- The "image_query" must be a descriptive, visual prompt of what should be drawn.
+- Describe the scene, the objects, the lighting, and the style (e.g., "A 3D isometric illustration of a futuristic hospital, glowing blue medical pods, clean white background, professional, corporate style").
+- Do not include text or words in the image prompt, as AI struggles to spell. Describe the visual only.
+- Keep it safe and educational. No violence, gore, or explicit content.
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
 
@@ -138,7 +137,7 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
       "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
-      "image_query": "Exact Wikipedia Title"
+      "image_query": "A detailed visual description for the image generator"
     }}
   ]
 }}
@@ -214,7 +213,7 @@ def _validate_output(data: dict) -> dict:
         if layout not in ALLOWED_LAYOUTS:
             layout = "content"
 
-        image_query = str(raw.get("image_query") or "").strip()[:80]
+        image_query = str(raw.get("image_query") or "").strip()[:300] # Increased to 300 for descriptive prompts
 
         slides.append(
             {
@@ -249,9 +248,9 @@ def _call_ai(topic, audience, tone, theme, style, content_length, model_name=Non
             {
                 "role": "system",
                 "content": (
-                    "You are SlideWala, a senior presentation designer. "
+                    "You are SlideWala, a senior presentation designer and AI artist. "
                     "You always answer with one valid JSON object and nothing else. "
-                    "You are strictly prohibited from generating explicit, NSFW, or unsafe image search terms."
+                    "You are strictly prohibited from generating explicit, NSFW, or unsafe image prompts."
                 ),
             },
             {"role": "user", "content": prompt},
