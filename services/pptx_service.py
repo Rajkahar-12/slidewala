@@ -98,20 +98,19 @@ def _add_slide_number(slide, number, total, color):
     )
 
 
-def _download_image(url, timeout=15):
+def _download_image(url, timeout=45):
     if not url:
         return None
     try:
         response = requests.get(
             url,
             timeout=timeout,
-            headers={"User-Agent": "SlideWala/1.0 (https://example.com)"},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         )
         if response.ok and (response.headers.get("content-type") or "").startswith("image/"):
-            if len(response.content) <= 10 * 1024 * 1024:
-                return response.content
-    except Exception:
-        pass
+            return response.content
+    except Exception as e:
+        print(f"Failed to download image for PPTX: {e}")
     return None
 
 
@@ -142,7 +141,8 @@ def _add_picture_fit(slide, image_bytes, left, top, width, height):
 
         stream.seek(0)
         return slide.shapes.add_picture(stream, x, y, width=final_w, height=final_h)
-    except Exception:
+    except Exception as e:
+        print(f"Error adding picture to PPTX: {e}")
         return None
 
 
@@ -210,7 +210,6 @@ def _content_slide(slide, data, theme, image_bytes, slide_no, total):
         28, theme["title"], bold=True,
     )
     
-    # Render subtopic if it exists
     if has_subtopic:
         _add_text(
             slide, subtopic,
