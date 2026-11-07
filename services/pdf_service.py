@@ -1,6 +1,7 @@
 """Real PDF generation with ReportLab, one presentation slide per page."""
 import io
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from PIL import Image
@@ -116,13 +117,13 @@ def _draw_bullets(c, bullets, x, y, max_width, size, color):
         y -= 3
 
 
-def _download_image(url, timeout=45):
+def _fetch_image_data(url):
     if not url:
         return None
     try:
         response = requests.get(
             url,
-            timeout=timeout,
+            timeout=60,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         )
         if response.ok and (response.headers.get("content-type") or "").startswith("image/"):
@@ -298,6 +299,13 @@ def build_pdf(payload: dict):
 
     theme = THEMES.get(str(payload.get("theme") or "aurora").lower(), THEMES["aurora"])
 
+    # 🚨 DOWNLOAD IMAGES IN PARALLEL (Fixes the timeout issue)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        image_bytes_list = list(executor.map(
+            lambda s: _fetch_image_data(s.get("image_source_url")), 
+            slides
+        ))
+
     output = io.BytesIO()
     c = canvas.Canvas(output, pagesize=(PAGE_W, PAGE_H))
     c.setTitle(_safe_text(payload.get("title") or "SlideWala Presentation"))
@@ -305,7 +313,8 @@ def build_pdf(payload: dict):
     for index, slide_data in enumerate(slides):
         slide_no = index + 1
         layout = str(slide_data.get("layout") or "content").lower()
-        image_bytes = _download_image(slide_data.get("image_source_url"))
+        
+        image_bytes = image_bytes_list[index]
 
         if slide_no == 1 or layout == "title":
             _title_page(c, slide_data, theme)
