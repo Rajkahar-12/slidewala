@@ -67,19 +67,25 @@ def _validate_input(payload: dict):
 
 def _build_prompt(topic: str, audience: str, tone: str, theme: str, style: str, content_length: str, strict: bool = False) -> str:
     
-    style_instructions = ""
     if style == "normal":
         style_instructions = """
-STYLE: NORMAL (Structured / Educational)
-- Every slide MUST have a "subtopic" (a short phrase that elaborates on the main title).
-- Bullets should be full sentences or paragraphs that explain the subtopic.
-        """
+STYLE: ACADEMIC / LECTURE (Strict Structure)
+You are a strict university professor. You must follow this exact slide structure:
+- Slide 1 (Layout: "title"): Title of the topic. Subtitle: "Presented by: [Your Name] | Class/Roll No | Institution".
+- Slide 2 (Layout: "content"): Introduction. Definition and core context.
+- Slide 3 (Layout: "content"): Main Components / Classification. Use bullet points formatted as "**Term:** Definition" to act like a list.
+- Slide 4 (Layout: "content"): The Core Process. Use arrows (->) for steps (e.g., "Step 1 -> Step 2 -> Step 3").
+- Slide 5 (Layout: "image-left"): Detailed Structure / Anatomy. MUST have an image_query.
+- Slide 6 (Layout: "content" or "image-right"): Regulation / Control / Factors.
+- Slide 7 (Layout: "conclusion"): Conclusion + "Thank You! Any questions?".
+"""
     else:
         style_instructions = """
 STYLE: MOTION (Visual / Pitch)
 - Omit "subtopic" entirely (leave it as an empty string).
 - Bullets must be very short, punchy phrases (max 5 words each).
-        """
+- Be highly visual and persuasive.
+"""
 
     length_instructions = ""
     if content_length == "short":
@@ -91,10 +97,11 @@ STYLE: MOTION (Visual / Pitch)
 
     layout_instructions = """
 LAYOUT & DESIGN RULES:
-- Use "image-right" if the slide has a lot of text. 
-- Use "image-left" if the text is short and punchy.
-- Use "full-image" ONLY for powerful quotes or single strong concepts.
-- Use "content" (no image) if the text is extremely long, or if it's a comparison slide.
+- Use "image-right" or "image-left" for slides with images.
+- If the slide has a lot of text, use "image-right" so the text has room to breathe on the left.
+- Use "content" (no image) if the text is extremely long, or if it's a definition list.
+- For the "image_query", describe a clear, educational diagram or photo. 
+  Example: "A detailed anatomical diagram of a sperm cell with labeled parts, educational illustration, clean white background."
 """
 
     prompt = f"""Create a presentation for a {audience} audience.
@@ -112,18 +119,9 @@ Slide Count Rules:
 - If no number is specified in the topic, you MUST generate exactly 8 slides.
 
 Global Requirements:
-- Slide 1 must be a strong title/intro slide.
-- The last slide must be a conclusion or call to action.
 - Every slide needs a short, strong title.
 - Every slide needs 2 to 4 sentences of speaker notes.
 - For references slides, image_query must be an empty string.
-
-CRITICAL IMAGE GENERATION RULES:
-- We are using an AI Image Generator (not a stock search). 
-- The "image_query" must be a descriptive, visual prompt of what should be drawn.
-- Describe the scene, the objects, the lighting, and the style (e.g., "A 3D isometric illustration of a futuristic hospital, glowing blue medical pods, clean white background, professional, corporate style").
-- Do not include text or words in the image prompt, as AI struggles to spell. Describe the visual only.
-- Keep it safe and educational. No violence, gore, or explicit content.
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
 
@@ -213,7 +211,7 @@ def _validate_output(data: dict) -> dict:
         if layout not in ALLOWED_LAYOUTS:
             layout = "content"
 
-        image_query = str(raw.get("image_query") or "").strip()[:300] # Increased to 300 for descriptive prompts
+        image_query = str(raw.get("image_query") or "").strip()[:300]
 
         slides.append(
             {
@@ -248,14 +246,14 @@ def _call_ai(topic, audience, tone, theme, style, content_length, model_name=Non
             {
                 "role": "system",
                 "content": (
-                    "You are SlideWala, a senior presentation designer and AI artist. "
+                    "You are SlideWala, a senior academic presentation designer. "
                     "You always answer with one valid JSON object and nothing else. "
                     "You are strictly prohibited from generating explicit, NSFW, or unsafe image prompts."
                 ),
             },
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.65,
+        "temperature": 0.5,  # Lower temperature for more strict adherence to structure
         "response_format": {"type": "json_object"},
         "max_tokens": 4000,
     }
