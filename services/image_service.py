@@ -17,10 +17,8 @@ _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": USER_AGENT})
 
 # 🚨 SAFETY FILTERS
-# If the AI tries to search these, we force a safe educational suffix
 SENSITIVE_WORDS = {"sex", "penis", "vagina", "reproduction", "anatomy", "nude", "naked", "breast", "genital", "erotic"}
-# If the image title contains these, we reject the image completely
-BLOCKED_TITLE_WORDS = {"porn", "nude", "naked", "erotic", "sex", "genital", "penis", "vagina"}
+BLOCKED_TITLE_WORDS = {"porn", "nude", "naked", "erotic", "sex", "genital", "penis", "vagina", "manual", "subsystem", "spacecraft"}
 
 def _is_allowed_url(url: str) -> bool:
     try:
@@ -59,14 +57,8 @@ def search_wikimedia(query: str, limit: int = 6):
     if not query or not query.strip():
         return []
 
-    # 🚨 ENFORCE SAFE SEARCH
-    query_lower = query.lower()
-    if any(word in query_lower for word in SENSITIVE_WORDS):
-        # Force diagrams and textbook illustrations for sensitive topics
-        search_term = f"{query.strip()} medical diagram illustration chart"
-    else:
-        # Force educational context for normal topics
-        search_term = f"{query.strip()} educational"
+    # 🚨 STRICT SEARCH: No extra words, just the exact term the AI provided.
+    search_term = query.strip()
 
     params = {
         "action": "query",
@@ -105,7 +97,7 @@ def search_wikimedia(query: str, limit: int = 6):
         # 🚨 REJECT BAD IMAGES BY TITLE
         title_lower = title.lower()
         if any(bad_word in title_lower for bad_word in BLOCKED_TITLE_WORDS):
-            print(f"Rejected explicit image: {title}")
+            print(f"Rejected image: {title}")
             continue
 
         width = int(info.get("width") or 0)
@@ -144,28 +136,20 @@ def _score_image(item: dict) -> int:
         score += 1
     if width >= 1200:
         score += 2
-    if width >= 2000:
-        score += 1
     return score
 
 
-def _get_image_for_slide(slide: dict, fallback_query: str = ""):
+def _get_image_for_slide(slide: dict):
     query = (slide.get("image_query") or "").strip()
-    if not query:
-        query = fallback_query
-
     if not query:
         return slide
 
     try:
         candidates = search_wikimedia(query)
         
-        if not candidates and fallback_query and query != fallback_query:
-            print(f"No images for '{query}'. Falling back to '{fallback_query}'.")
-            candidates = search_wikimedia(fallback_query)
-
+        # 🚨 NO FALLBACK. If the search fails, show NO image.
         if not candidates:
-            print(f"No images found at all for '{query}'.")
+            print(f"No images found for '{query}'. Skipping image.")
             return slide
 
         best = max(candidates, key=_score_image)
@@ -179,24 +163,18 @@ def _get_image_for_slide(slide: dict, fallback_query: str = ""):
         print(f"Image found for '{query}' -> {best['title']}")
         
     except Exception as e:
-        print(f"Error fetching image for slide: {e}")
+        print(f"Error fetching image: {e}")
 
     return slide
 
 
-def enrich_slides_with_images(presentation: dict, fallback_query: str = ""):
+def enrich_slides_with_images(presentation: dict):
     """Attach one relevant Wikimedia image to each slide in parallel."""
     slides = presentation.get("slides") or []
     if not slides:
         return presentation
 
-    print(f"Starting image enrichment for {len(slides)} slides...")
-
-    def task(slide):
-        return _get_image_for_slide(slide, fallback_query)
-
     with ThreadPoolExecutor(max_workers=4) as executor:
-        list(executor.map(task, slides))
+        list(executor.map(_get_image_for_slide, slides))
 
-    print("Image enrichment finished.")
     return presentation
