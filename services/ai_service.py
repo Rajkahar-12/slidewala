@@ -67,63 +67,43 @@ def _validate_input(payload: dict):
 
 def _build_prompt(topic: str, audience: str, tone: str, theme: str, style: str, content_length: str, strict: bool = False) -> str:
     
+    # Set the tone for the content based on the user's choice
     if style == "normal":
-        style_instructions = """
-STYLE: ACADEMIC / LECTURE (Strict Structure)
-You are a strict university professor. You must follow this exact slide structure:
-- Slide 1 (Layout: "title"): Title of the topic. Subtitle: "Presented by: [Your Name] | Class/Roll No | Institution".
-- Slide 2 (Layout: "content"): Introduction. Definition and core context.
-- Slide 3 (Layout: "content"): Main Components / Classification. Use bullet points formatted as "**Term:** Definition" to act like a list.
-- Slide 4 (Layout: "content"): The Core Process. Use arrows (->) for steps (e.g., "Step 1 -> Step 2 -> Step 3").
-- Slide 5 (Layout: "image-left"): Detailed Structure / Anatomy. MUST have an image_query.
-- Slide 6 (Layout: "content" or "image-right"): Regulation / Control / Factors.
-- Slide 7 (Layout: "conclusion"): Conclusion + "Thank You! Any questions?".
-"""
+        content_style = "Write like a clear, educational textbook or a university lecture. Use structured bullet points, definitions, and logical steps."
     else:
-        style_instructions = """
-STYLE: MOTION (Visual / Pitch)
-- Omit "subtopic" entirely (leave it as an empty string).
-- Bullets must be very short, punchy phrases (max 5 words each).
-- Be highly visual and persuasive.
-"""
+        content_style = "Write like a high-impact Apple keynote or TED Talk. Use short, punchy phrases, strong action verbs, and minimal text."
 
-    length_instructions = ""
+    # Set the length
+    length_rule = ""
     if content_length == "short":
-        length_instructions = "Keep explanations very brief. Max 2-3 concise sentences per slide."
+        length_rule = "Keep bullet points to 1 short sentence."
     elif content_length == "detailed":
-        length_instructions = "Provide detailed, thorough explanations. 3-4 detailed sentences per slide. Use all 5 bullet points."
+        length_rule = "Provide detailed explanations. Bullet points should be 2-3 sentences long, explaining the 'how' and 'why'."
     else:
-        length_instructions = "Provide balanced explanations. 3-4 sentences per slide. Use 3-4 bullet points."
+        length_rule = "Provide balanced explanations. Bullet points should be 1-2 clear sentences."
 
-    layout_instructions = """
-LAYOUT & DESIGN RULES:
-- Use "image-right" or "image-left" for slides with images.
-- If the slide has a lot of text, use "image-right" so the text has room to breathe on the left.
-- Use "content" (no image) if the text is extremely long, or if it's a definition list.
-- For the "image_query", describe a clear, educational diagram or photo. 
-  Example: "A detailed anatomical diagram of a sperm cell with labeled parts, educational illustration, clean white background."
-"""
-
-    prompt = f"""Create a presentation for a {audience} audience.
+    prompt = f"""You are an expert educator and presentation designer. Create a presentation for a {audience} audience.
 
 Topic: {topic}
 Tone: {tone}
-Visual theme: {theme}
+Style: {content_style}
+Length Rule: {length_rule}
 
-{style_instructions}
-{length_instructions}
-{layout_instructions}
-
-Slide Count Rules:
+STRUCTURAL RULES:
+- Start with a strong Title slide.
+- End with a Conclusion / Thank You slide.
+- Organize the middle slides logically (e.g., Introduction, Key Concepts, Step-by-Step Process, Examples, Analysis). Do not repeat content.
 - If the user's topic explicitly asks for a specific number of slides (e.g., "5 slides"), generate exactly that many.
-- If no number is specified in the topic, you MUST generate exactly 8 slides.
+- If no number is specified, generate exactly 8 slides.
 
-Global Requirements:
-- Every slide needs a short, strong title.
-- Every slide needs 2 to 4 sentences of speaker notes.
-- For references slides, image_query must be an empty string.
+IMAGE GENERATION RULES (CRITICAL):
+- The "image_query" will be sent to an AI image generator (Pollinations AI).
+- It must be a highly descriptive, safe, educational visual prompt.
+- Example: "A 3D educational diagram of the human sperm cell, labeled with acrosome, head, midpiece, and tail, clean white background, scientific illustration."
+- NEVER use abstract words. Describe exactly what should be drawn.
+- Keep it strictly safe: no nudity, no violence, no gore.
 
-Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
+Return ONLY valid JSON in this exact shape:
 
 {{
   "title": "Overall presentation title",
@@ -135,13 +115,13 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
       "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
-      "image_query": "A detailed visual description for the image generator"
+      "image_query": "A highly descriptive visual prompt for the AI image generator"
     }}
   ]
 }}
 """
     if strict:
-        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Output exactly 8 slides if no number was requested."
+        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Output exactly the number requested or 8 slides."
     return prompt
 
 
@@ -253,7 +233,7 @@ def _call_ai(topic, audience, tone, theme, style, content_length, model_name=Non
             },
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.5,  # Lower temperature for more strict adherence to structure
+        "temperature": 0.6, # Balanced creativity and structure
         "response_format": {"type": "json_object"},
         "max_tokens": 4000,
     }
