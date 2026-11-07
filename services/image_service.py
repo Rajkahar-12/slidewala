@@ -16,6 +16,11 @@ USER_AGENT = os.getenv(
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": USER_AGENT})
 
+# 🚨 SAFETY FILTERS
+# If the AI tries to search these, we force a safe educational suffix
+SENSITIVE_WORDS = {"sex", "penis", "vagina", "reproduction", "anatomy", "nude", "naked", "breast", "genital", "erotic"}
+# If the image title contains these, we reject the image completely
+BLOCKED_TITLE_WORDS = {"porn", "nude", "naked", "erotic", "sex", "genital", "penis", "vagina"}
 
 def _is_allowed_url(url: str) -> bool:
     try:
@@ -54,10 +59,19 @@ def search_wikimedia(query: str, limit: int = 6):
     if not query or not query.strip():
         return []
 
+    # 🚨 ENFORCE SAFE SEARCH
+    query_lower = query.lower()
+    if any(word in query_lower for word in SENSITIVE_WORDS):
+        # Force diagrams and textbook illustrations for sensitive topics
+        search_term = f"{query.strip()} medical diagram illustration chart"
+    else:
+        # Force educational context for normal topics
+        search_term = f"{query.strip()} educational"
+
     params = {
         "action": "query",
         "generator": "search",
-        "gsrsearch": f"{query.strip()} filetype:bitmap",
+        "gsrsearch": f"{search_term} filetype:bitmap",
         "gsrnamespace": "6",
         "gsrlimit": str(min(max(limit, 1), 10)),
         "prop": "imageinfo",
@@ -71,7 +85,7 @@ def search_wikimedia(query: str, limit: int = 6):
         resp.raise_for_status()
         payload = resp.json()
     except Exception as e:
-        print(f"Wikimedia API Error for '{query}': {e}")
+        print(f"Wikimedia API Error for '{search_term}': {e}")
         return []
 
     pages = (payload.get("query") or {}).get("pages") or {}
@@ -86,6 +100,14 @@ def search_wikimedia(query: str, limit: int = 6):
         if mime not in ("image/jpeg", "image/png", "image/webp"):
             continue
 
+        title = (page.get("title") or "").replace("File:", "")
+        
+        # 🚨 REJECT BAD IMAGES BY TITLE
+        title_lower = title.lower()
+        if any(bad_word in title_lower for bad_word in BLOCKED_TITLE_WORDS):
+            print(f"Rejected explicit image: {title}")
+            continue
+
         width = int(info.get("width") or 0)
         height = int(info.get("height") or 0)
         if width < 500 or height < 300:
@@ -97,7 +119,7 @@ def search_wikimedia(query: str, limit: int = 6):
 
         results.append(
             {
-                "title": (page.get("title") or "").replace("File:", ""),
+                "title": title,
                 "url": original,
                 "width": width,
                 "height": height,
@@ -138,7 +160,6 @@ def _get_image_for_slide(slide: dict, fallback_query: str = ""):
     try:
         candidates = search_wikimedia(query)
         
-        # Fallback: If no candidates found for specific query, try the main topic
         if not candidates and fallback_query and query != fallback_query:
             print(f"No images for '{query}'. Falling back to '{fallback_query}'.")
             candidates = search_wikimedia(fallback_query)
