@@ -116,20 +116,19 @@ def _draw_bullets(c, bullets, x, y, max_width, size, color):
         y -= 3
 
 
-def _download_image(url, timeout=15):
+def _download_image(url, timeout=45):
     if not url:
         return None
     try:
         response = requests.get(
             url,
             timeout=timeout,
-            headers={"User-Agent": "SlideWala/1.0 (https://example.com)"},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         )
         if response.ok and (response.headers.get("content-type") or "").startswith("image/"):
-            if len(response.content) <= 10 * 1024 * 1024:
-                return response.content
-    except Exception:
-        pass
+            return response.content
+    except Exception as e:
+        print(f"Failed to download image for PDF: {e}")
     return None
 
 
@@ -159,7 +158,8 @@ def _draw_image_fit(c, image_bytes, x, y, width, height):
 
         c.drawImage(reader, final_x, final_y, final_w, final_h, preserveAspectRatio=True)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error drawing image on PDF: {e}")
         return False
 
 
