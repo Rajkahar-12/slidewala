@@ -1,5 +1,6 @@
 """Real .pptx generation with python-pptx."""
 import io
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from PIL import Image
@@ -98,13 +99,13 @@ def _add_slide_number(slide, number, total, color):
     )
 
 
-def _download_image(url, timeout=45):
+def _fetch_image_data(url):
     if not url:
         return None
     try:
         response = requests.get(
             url,
-            timeout=timeout,
+            timeout=60,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         )
         if response.ok and (response.headers.get("content-type") or "").startswith("image/"):
@@ -285,6 +286,13 @@ def build_pptx(payload: dict):
 
     theme = THEMES.get(str(payload.get("theme") or "aurora").lower(), THEMES["aurora"])
 
+    # 🚨 DOWNLOAD IMAGES IN PARALLEL (Fixes the timeout issue)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        image_bytes_list = list(executor.map(
+            lambda s: _fetch_image_data(s.get("image_source_url")), 
+            slides
+        ))
+
     presentation = Presentation()
     presentation.slide_width = SLIDE_W
     presentation.slide_height = SLIDE_H
@@ -294,8 +302,8 @@ def build_pptx(payload: dict):
         slide = presentation.slides.add_slide(blank_layout)
         slide_no = index + 1
         layout = str(slide_data.get("layout") or "content").lower()
-
-        image_bytes = _download_image(slide_data.get("image_source_url"))
+        
+        image_bytes = image_bytes_list[index]
 
         if slide_no == 1 or layout == "title":
             _title_slide(slide, slide_data, theme)
