@@ -118,9 +118,11 @@ Global Requirements:
 - Include an introduction, logically ordered main content, and conclusion.
 - Every slide needs a short, strong title.
 - Every slide needs 2 to 4 sentences of speaker notes.
-- CRITICAL: Add a specific "image_query" for most slides. 
-- CRITICAL: The "image_query" MUST be 1 to 3 simple keywords that exist in a photo database (e.g., "hospital", "doctor", "robot", "laptop", "business meeting"). 
-- DO NOT write sentences in the image_query. Keep it extremely short and visual.
+- CRITICAL IMAGE RULE: Add a specific "image_query" for most slides. 
+- CRITICAL IMAGE SAFETY: This is for a school/study website. The "image_query" MUST be strictly academic and safe. 
+- If the topic is biology or anatomy (e.g. reproduction, organs), you MUST use terms like "biology diagram", "anatomy chart", "scientific illustration", "microscope view". NEVER use raw or explicit biological terms.
+- For all other topics, use 1 to 3 simple visual keywords (e.g., "business meeting", "laptop coding").
+- DO NOT write sentences in the image_query. Keep it extremely short.
 - For references slides, image_query must be an empty string.
 
 Return ONLY valid JSON in this exact shape, with no markdown and no text outside the JSON:
@@ -135,7 +137,7 @@ Return ONLY valid JSON in this exact shape, with no markdown and no text outside
       "subtopic": "Subtopic (only for Normal style, else empty string)",
       "bullets": ["point 1", "point 2", "point 3"],
       "speaker_notes": "What the speaker says.",
-      "image_query": "keyword"
+      "image_query": "educational keyword"
     }}
   ]
 }}
@@ -247,7 +249,8 @@ def _call_ai(topic, audience, tone, theme, style, content_length, model_name=Non
                 "role": "system",
                 "content": (
                     "You are SlideWala, a senior presentation designer. "
-                    "You always answer with one valid JSON object and nothing else."
+                    "You always answer with one valid JSON object and nothing else. "
+                    "You are strictly prohibited from generating explicit, NSFW, or unsafe image search terms."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -338,7 +341,6 @@ def generate_presentation(payload: dict) -> dict:
             deck["tone"] = inputs["tone"]
             deck["theme"] = inputs["theme"]
             
-            # Pass the main topic as a fallback for image search
             enrich_slides_with_images(deck, fallback_query=inputs["topic"])
             
             return deck
