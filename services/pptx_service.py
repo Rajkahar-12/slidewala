@@ -109,14 +109,8 @@ def _fetch_image_data(url):
     except Exception as e:
         print(f"Failed to download AI image: {e}")
     
-    # 🚨 FALLBACK IMAGE: If Pollinations fails, grab a nice placeholder
-    print("Using fallback image...")
-    try:
-        fallback = requests.get("https://picsum.photos/1024/576", timeout=10)
-        if fallback.ok:
-            return fallback.content
-    except Exception:
-        pass
+    # 🚨 NO RANDOM FALLBACK. If it fails, it returns None (text-only slide).
+    print("AI Image failed to load. Skipping image.")
     return None
 
 
@@ -202,6 +196,10 @@ def _content_slide(slide, data, theme, image_bytes, slide_no, total):
     title_left = Inches(0.9)
     title_top = Inches(0.65)
     title_width = Inches(11.4)
+
+    # If the image failed, we automatically switch to a full-width text layout
+    if not has_image:
+        layout = "content"
 
     if has_image and layout in ("image-left", "full-image"):
         title_left = Inches(6.6)
