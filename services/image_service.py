@@ -21,13 +21,13 @@ def _get_image_for_slide(slide: dict):
         return slide
 
     try:
-        # Force an educational, safe prefix
-        safe_prompt = f"educational, safe for work, textbook diagram, clean background, {prompt[:120]}"
+        # Keep the prompt VERY short and direct so Pollinations doesn't crash
+        safe_prompt = f"educational illustration, {prompt[:80]}"
         
         encoded_prompt = urllib.parse.quote(safe_prompt, safe='')
         
-        # Use a slightly smaller resolution (1024x576) to speed up generation
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=576&model=flux&nologo=true"
+        # Use the base URL format. Pollinations handles the size automatically now.
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=576&nologo=true"
 
         slide["image_source_url"] = image_url
         slide["image_url"] = "/api/image?url=" + urllib.parse.quote_plus(image_url)
@@ -47,7 +47,7 @@ def enrich_slides_with_images(presentation: dict):
     if not slides:
         return presentation
 
-    # Use only 2 workers to avoid getting blocked by Pollinations
+    # Use only 2 workers to avoid getting blocked by the free API
     with ThreadPoolExecutor(max_workers=2) as executor:
         list(executor.map(_get_image_for_slide, slides))
 
