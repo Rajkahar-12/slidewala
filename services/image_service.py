@@ -10,25 +10,24 @@ BLOCKED_PROMPT_WORDS = {
 
 def _get_image_for_slide(slide: dict):
     prompt = (slide.get("image_query") or "").strip()
-    
+    title = (slide.get("title") or "").lower()
+
+    # 🚨 SAFETY CHECK
+    if any(bad_word in title or bad_word in prompt.lower() for bad_word in BLOCKED_PROMPT_WORDS):
+        print(f"Blocked unsafe image prompt/title: '{prompt}'")
+        return slide
+
     if not prompt:
         return slide
 
-    # 🚨 SAFETY CHECK
-    prompt_lower = prompt.lower()
-    if any(bad_word in prompt_lower for bad_word in BLOCKED_PROMPT_WORDS):
-        print(f"Blocked unsafe image prompt: '{prompt}'")
-        return slide
-
     try:
-        # Force an educational, safe prefix so the AI doesn't block medical topics
+        # Force an educational, safe prefix
         safe_prompt = f"educational, safe for work, textbook diagram, clean background, {prompt[:120]}"
         
         encoded_prompt = urllib.parse.quote(safe_prompt, safe='')
-        seed = abs(hash(safe_prompt)) % 1000000
         
-        # Request a 16:9 landscape image using the Flux model
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&model=flux&nologo=true&seed={seed}"
+        # Use a slightly smaller resolution (1024x576) to speed up generation
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=576&model=flux&nologo=true"
 
         slide["image_source_url"] = image_url
         slide["image_url"] = "/api/image?url=" + urllib.parse.quote_plus(image_url)
@@ -38,7 +37,7 @@ def _get_image_for_slide(slide: dict):
         print(f"Generated image prompt for: '{prompt[:30]}...'")
 
     except Exception as e:
-        print(f"Error generating image: {e}")
+        print(f"Error generating image URL: {e}")
 
     return slide
 
@@ -48,8 +47,8 @@ def enrich_slides_with_images(presentation: dict):
     if not slides:
         return presentation
 
-    # Use 4 workers to speed up the generation
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # Use only 2 workers to avoid getting blocked by Pollinations
+    with ThreadPoolExecutor(max_workers=2) as executor:
         list(executor.map(_get_image_for_slide, slides))
 
     return presentation
@@ -64,11 +63,7 @@ def proxy_image(url: str):
         raise ValueError("Image URL is not from an allowed source.")
 
     import requests
-    resp = requests.get(
-        url, 
-        timeout=45, 
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    )
+    resp = requests.get(url, timeout=45)
     if not resp.ok:
         raise RuntimeError(f"Image request failed: {resp.status_code}")
 
