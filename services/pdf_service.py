@@ -126,14 +126,8 @@ def _fetch_image_data(url):
     except Exception as e:
         print(f"Failed to download AI image: {e}")
     
-    # 🚨 FALLBACK IMAGE
-    print("Using fallback image...")
-    try:
-        fallback = requests.get("https://picsum.photos/1024/576", timeout=10)
-        if fallback.ok:
-            return fallback.content
-    except Exception:
-        pass
+    # 🚨 NO RANDOM FALLBACK.
+    print("AI Image failed to load. Skipping image.")
     return None
 
 
@@ -210,6 +204,10 @@ def _content_page(c, data, theme, image_bytes, slide_no, total):
     
     subtopic = data.get("subtopic") or ""
     has_subtopic = bool(subtopic)
+
+    # If the image failed, force text layout
+    if not has_image:
+        layout = "content"
 
     text_x = 65
     text_width = PAGE_W - 130
@@ -303,7 +301,7 @@ def build_pdf(payload: dict):
 
     theme = THEMES.get(str(payload.get("theme") or "aurora").lower(), THEMES["aurora"])
 
-    # Download images sequentially to prevent Pollinations from blocking us
+    # Download images sequentially
     image_bytes_list = []
     for s in slides:
         image_bytes_list.append(_fetch_image_data(s.get("image_source_url")))
