@@ -103,15 +103,20 @@ def _fetch_image_data(url):
     if not url:
         return None
     try:
-        response = requests.get(
-            url,
-            timeout=60,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-        )
+        response = requests.get(url, timeout=45)
         if response.ok and (response.headers.get("content-type") or "").startswith("image/"):
             return response.content
     except Exception as e:
-        print(f"Failed to download image for PPTX: {e}")
+        print(f"Failed to download AI image: {e}")
+    
+    # 🚨 FALLBACK IMAGE: If Pollinations fails, grab a nice placeholder
+    print("Using fallback image...")
+    try:
+        fallback = requests.get("https://picsum.photos/1024/576", timeout=10)
+        if fallback.ok:
+            return fallback.content
+    except Exception:
+        pass
     return None
 
 
@@ -286,12 +291,10 @@ def build_pptx(payload: dict):
 
     theme = THEMES.get(str(payload.get("theme") or "aurora").lower(), THEMES["aurora"])
 
-    # 🚨 DOWNLOAD IMAGES IN PARALLEL (Fixes the timeout issue)
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        image_bytes_list = list(executor.map(
-            lambda s: _fetch_image_data(s.get("image_source_url")), 
-            slides
-        ))
+    # Download images sequentially to prevent Pollinations from blocking us
+    image_bytes_list = []
+    for s in slides:
+        image_bytes_list.append(_fetch_image_data(s.get("image_source_url")))
 
     presentation = Presentation()
     presentation.slide_width = SLIDE_W
