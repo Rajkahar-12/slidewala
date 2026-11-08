@@ -73,14 +73,14 @@ def _build_prompt(topic: str, audience: str, tone: str, theme: str, style: str, 
     else:
         content_style = "Write like a high-impact Apple keynote or TED Talk. Use short, punchy phrases, strong action verbs, and minimal text."
 
-    # Set the length
+    # 🚨 ENFORCE STRICT BULLET POINT COUNTS AND LENGTHS
     length_rule = ""
     if content_length == "short":
-        length_rule = "Keep bullet points to 1 short sentence."
+        length_rule = "Generate EXACTLY 3 bullet points per slide. Each bullet point must be 1 short sentence."
     elif content_length == "detailed":
-        length_rule = "Provide detailed explanations. Bullet points should be 2-3 sentences long, explaining the 'how' and 'why'."
+        length_rule = "Generate EXACTLY 5 to 6 bullet points per slide. Each bullet point must be 2 to 3 detailed sentences long, thoroughly explaining the 'how' and 'why' of the topic."
     else:
-        length_rule = "Provide balanced explanations. Bullet points should be 1-2 clear sentences."
+        length_rule = "Generate EXACTLY 4 to 5 bullet points per slide. Each bullet point must be 1 to 2 clear sentences, keeping the information concise but informative."
 
     prompt = f"""You are an expert educator and presentation designer. Create a presentation for a {audience} audience.
 
@@ -113,7 +113,7 @@ Return ONLY valid JSON in this exact shape:
       "layout": "image-left",
       "title": "Slide title",
       "subtopic": "Subtopic (only for Normal style, else empty string)",
-      "bullets": ["point 1", "point 2", "point 3"],
+      "bullets": ["point 1", "point 2", "point 3", "point 4", "point 5"],
       "speaker_notes": "What the speaker says.",
       "image_query": "A highly descriptive visual prompt for the AI image generator"
     }}
@@ -121,7 +121,7 @@ Return ONLY valid JSON in this exact shape:
 }}
 """
     if strict:
-        prompt += "\n\nIMPORTANT: You MUST follow the slide count rules strictly. Output exactly the number requested or 8 slides."
+        prompt += "\n\nIMPORTANT: You MUST follow the slide count and bullet count rules strictly."
     return prompt
 
 
@@ -176,12 +176,16 @@ def _validate_output(data: dict) -> dict:
 
         bullets = []
         for bullet in bullets_raw:
-            text = str(bullet).strip()[:300]
+            text = str(bullet).strip()[:500] # Increased character limit per bullet for detailed mode
             if text:
                 bullets.append(text)
+        
+        # Ensure we don't have an empty list
         if len(bullets) < 2:
             bullets.append("Key takeaway for this slide.")
-        bullets = bullets[:6]
+            
+        # Allow up to 8 bullets to safely accommodate detailed mode
+        bullets = bullets[:8]
 
         notes = str(raw.get("speaker_notes") or "").strip()[:2400]
         if not notes:
@@ -233,7 +237,7 @@ def _call_ai(topic, audience, tone, theme, style, content_length, model_name=Non
             },
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.6, # Balanced creativity and structure
+        "temperature": 0.6,
         "response_format": {"type": "json_object"},
         "max_tokens": 4000,
     }
